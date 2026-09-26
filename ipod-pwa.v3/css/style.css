@@ -1,0 +1,1205 @@
+/* ============================================================
+   Retro iPod — Photorealistic Skeuomorphic Styling
+   Edge-to-Edge Full Screen on Mobile + Multi-Touch Stickers
+   ============================================================ */
+
+:root {
+  --shell-base-color: #dcdfe3;
+  --shell-rim-color: #83868c;
+  --shell-highlight: rgba(255, 255, 255, 0.85);
+
+  --wheel-bg: radial-gradient(circle at 50% 50%, #f6f7f8 0%, #e4e6e9 70%, #d5d7db 100%);
+  --wheel-shadow: 0 4px 12px rgba(0,0,0,0.18), inset 0 1px 1px #fff;
+  --wheel-btn-text: #7f8389;
+  --wheel-btn-active: #2c2d30;
+
+  --center-bg: radial-gradient(circle at 45% 40%, #ffffff 0%, #e6e8eb 75%, #cfd2d6 100%);
+  --center-rim: #b6b9bd;
+
+  /* Classic LCD Theme */
+  --lcd-screen-bg: #ffffff;
+  --lcd-header-bg: linear-gradient(180deg, #e3e3e4 0%, #c4c6ca 50%, #aeb1b6 51%, #babdc2 100%);
+  --lcd-header-border: #8b8e94;
+  --lcd-text: #000000;
+  --lcd-subtext: #555555;
+  --lcd-row-border: #e0e0e0;
+  
+  /* Apple Aqua/iPod Blue gloss highlight row */
+  --lcd-sel-bg: linear-gradient(180deg, #6aa5f2 0%, #357ee3 50%, #2067cf 51%, #2c72d8 100%);
+  --lcd-sel-text: #ffffff;
+  --lcd-sel-subtext: #d6e5fb;
+  --lcd-sel-top-edge: #94bef7;
+  --lcd-sel-bottom-edge: #1852aa;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ---------------- Presets: Stealth Black & U2 ---------------- */
+body.theme-black {
+  --shell-base-color: #1a1b1e;
+  --wheel-bg: radial-gradient(circle at 50% 50%, #28292d 0%, #1e1f21 70%, #141517 100%);
+  --wheel-shadow: 0 5px 15px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,255,255,0.15);
+  --wheel-btn-text: #8e9095;
+  --wheel-btn-active: #ffffff;
+  --center-bg: radial-gradient(circle at 45% 40%, #323438 0%, #212225 75%, #151618 100%);
+  --center-rim: #0c0d0e;
+}
+
+body.theme-u2 {
+  --shell-base-color: #151618;
+  --wheel-bg: radial-gradient(circle at 50% 50%, #eb212b 0%, #c4121b 70%, #990a11 100%);
+  --wheel-shadow: 0 5px 15px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.4);
+  --wheel-btn-text: #200002;
+  --wheel-btn-active: #ffffff;
+  --center-bg: radial-gradient(circle at 45% 40%, #2f3033 0%, #1e1f21 75%, #131415 100%);
+  --center-rim: #000000;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: #080809;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  height: 100dvh;
+  touch-action: none;
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ============================================================
+   Desktop / Large Screen Container
+   ============================================================ */
+
+.ipod-shell {
+  position: relative;
+  width: min(90vw, 385px);
+  height: min(95dvh, 740px);
+  background-color: var(--shell-base-color);
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 65%),
+    linear-gradient(175deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.06) 42%, rgba(0,0,0,0.18) 78%, rgba(0,0,0,0.48) 100%),
+    linear-gradient(90deg, rgba(255,255,255,0.12) 0%, rgba(0,0,0,0.05) 50%, rgba(255,255,255,0.12) 100%);
+  border-radius: 40px;
+  border: 1px solid rgba(255,255,255,0.75);
+  box-shadow:
+    0 0 0 1.5px #d4d7db,
+    0 0 0 3px #82858b,
+    0 0 0 4.5px #f6f8fa,
+    0 0 0 6px #666970,
+    0 0 0 7.5px #242629,
+    -5px 0 10px -2px rgba(255,255,255,0.4),
+    5px 0 10px -2px rgba(0,0,0,0.5),
+    0 32px 75px rgba(0,0,0,0.92),
+    0 12px 25px rgba(0,0,0,0.55),
+    inset 0 2px 2px rgba(255,255,255,0.95),
+    inset 0 -3px 8px rgba(0,0,0,0.55),
+    inset 2px 0 4px rgba(255,255,255,0.45),
+    inset -2px 0 4px rgba(0,0,0,0.45);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 18px 24px;
+  gap: 14px;
+  transition: background-color 0.2s ease;
+}
+
+.ipod-shell::before {
+  content: "";
+  position: absolute;
+  inset: -6.5px;
+  border-radius: 46px;
+  pointer-events: none;
+  background: linear-gradient(
+    135deg,
+    rgba(255,255,255,0.95) 0%,
+    rgba(215,220,225,0.85) 12%,
+    rgba(105,110,116,0.9) 26%,
+    rgba(242,246,250,0.95) 47%,
+    rgba(255,255,255,1) 50%,
+    rgba(90,94,100,0.92) 70%,
+    rgba(205,210,216,0.85) 86%,
+    rgba(255,255,255,0.95) 100%
+  );
+  z-index: -1;
+  box-shadow: 0 20px 45px rgba(0,0,0,0.8);
+}
+
+/* ============================================================
+   MOBILE OPTIMIZATION: 100% Full Screen Edge-to-Edge
+   No empty space or black borders on phones
+   ============================================================ */
+
+@media (max-width: 600px), (max-height: 750px) {
+  body {
+    padding: 0;
+  }
+  #app {
+    width: 100vw;
+    height: 100dvh;
+  }
+  .ipod-shell {
+    width: 100vw;
+    height: 100dvh;
+    max-width: 100vw;
+    max-height: 100dvh;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    padding: calc(var(--safe-top) + 6px) 14px calc(var(--safe-bottom) + 12px);
+    gap: 10px;
+    justify-content: space-between;
+  }
+  .ipod-shell::before {
+    display: none;
+  }
+  .shell-metal-sheen,
+  .stickers-container {
+    border-radius: 0 !important;
+  }
+  /* Curved-edge illusion: since the shell is flush with the device's own
+     flat-cut screen edges here, a literal border-radius would just leave an
+     ugly gap. Instead fake a cylindrical brushed-metal edge with raking-light
+     gradients down the left and right sides, like the rounded sides of a
+     real iPod casing. */
+  .shell-edge-shine {
+    border-radius: 0 !important;
+    background:
+      linear-gradient(90deg,
+        rgba(0,0,0,0.5) 0%, rgba(255,255,255,0.65) 3.5%, rgba(255,255,255,0.22) 8%,
+        rgba(255,255,255,0.04) 14%, rgba(255,255,255,0) 20%),
+      linear-gradient(270deg,
+        rgba(0,0,0,0.55) 0%, rgba(255,255,255,0.4) 3.5%, rgba(255,255,255,0.12) 8%,
+        rgba(255,255,255,0.02) 14%, rgba(255,255,255,0) 20%);
+    background-repeat: no-repeat;
+    background-size: 50% 100%, 50% 100%;
+    background-position: left top, right top;
+  }
+}
+
+/* Metallic Sheen */
+.shell-metal-sheen {
+  position: absolute;
+  inset: 0;
+  border-radius: 40px;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(255,255,255,0.035) 0px,
+    rgba(255,255,255,0.035) 1px,
+    rgba(0,0,0,0.03) 1px,
+    rgba(0,0,0,0.03) 2px
+  );
+  mix-blend-mode: overlay;
+  z-index: 1;
+}
+
+.shell-edge-shine {
+  position: absolute;
+  inset: 0;
+  border-radius: 40px;
+  pointer-events: none;
+  background: linear-gradient(
+    115deg,
+    rgba(255,255,255,0.35) 0%,
+    rgba(255,255,255,0.05) 28%,
+    rgba(255,255,255,0) 45%,
+    rgba(255,255,255,0.08) 65%,
+    rgba(255,255,255,0) 100%
+  );
+  z-index: 1;
+}
+
+/* Top rim with hold switch */
+.top-hardware {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 14px;
+  padding: 0 8px;
+}
+
+.jack-port {
+  width: 14px;
+  height: 7px;
+  border-radius: 3.5px;
+  background: #111;
+  box-shadow: inset 0 1px 2px #000;
+  opacity: 0.75;
+}
+
+.hold-group {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.hold-label {
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  color: #6a6e75;
+}
+
+.hold-switch {
+  width: 32px;
+  height: 15px;
+  border-radius: 8px;
+  background: #8e9196;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.6);
+  position: relative;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.hold-switch::after {
+  content: "";
+  position: absolute;
+  top: 1.5px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #ffffff 0%, #cacdcf 100%);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hold-switch.active { background: #ff9100; }
+.hold-switch.active::after { transform: translateX(16px); }
+
+/* ---------- Screen Bezel & Acrylic Glass ---------- */
+
+.screen-bezel {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  background: #090a0b;
+  border-radius: 12px;
+  padding: 7px;
+  box-shadow:
+    inset 0 2px 5px rgba(0,0,0,0.85),
+    0 1px 1px rgba(255,255,255,0.3);
+}
+
+.screen-frame {
+  position: relative;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px #000;
+}
+
+.screen {
+  background: var(--lcd-screen-bg);
+  aspect-ratio: 1 / 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  color: var(--lcd-text);
+  overflow: hidden;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.screen-glare {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.06) 42%, rgba(255,255,255,0) 43%);
+  border-radius: 6px;
+  z-index: 8;
+}
+
+/* ---------- Glossy Status Bar ---------- */
+
+.status-bar {
+  flex: 0 0 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  background: var(--lcd-header-bg);
+  border-bottom: 1px solid var(--lcd-header-border);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+  font-size: 13px;
+}
+
+.status-left {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 32px;
+}
+
+.play-state-icon {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.hold-badge {
+  display: none;
+  font-size: 11px;
+}
+.hold-badge.show { display: inline-block; }
+
+.status-bar .title {
+  flex: 1;
+  text-align: center;
+  font-weight: 700;
+  font-size: 13.5px;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 4px;
+}
+
+/* Segmented battery icon */
+.batt { width: 32px; display: flex; justify-content: flex-end; }
+.batt-shell {
+  width: 17px;
+  height: 9px;
+  border: 1px solid #4a4d52;
+  border-radius: 2px;
+  position: relative;
+  padding: 1px;
+  display: flex;
+  gap: 1px;
+  background: rgba(255,255,255,0.4);
+}
+.batt-shell::after {
+  content: "";
+  position: absolute;
+  right: -3px;
+  top: 2px;
+  width: 2px;
+  height: 3px;
+  background: #4a4d52;
+  border-radius: 0 1px 1px 0;
+}
+.batt-bar {
+  flex: 1;
+  background: #3ac83a;
+  border-radius: 0.5px;
+}
+
+/* ---------- Screen Content & Menus ---------- */
+
+.screen-content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: var(--lcd-screen-bg);
+  transition: background-color 0.5s ease;
+}
+
+.menu-list {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 1 1 0;
+  padding: 0 10px;
+  font-size: 16px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--lcd-row-border);
+  color: var(--lcd-text);
+  line-height: 1.25;
+}
+
+.menu-row .label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-row .sub {
+  font-size: 14px;
+  color: var(--lcd-subtext);
+  font-weight: 400;
+  margin-left: 6px;
+}
+
+.menu-row .chevron {
+  font-size: 18px;
+  font-weight: bold;
+  opacity: 0.65;
+  margin-left: 6px;
+  line-height: 1;
+}
+
+.menu-row.selected {
+  background: var(--lcd-sel-bg);
+  color: var(--lcd-sel-text);
+  border-top: 1px solid var(--lcd-sel-top-edge);
+  border-bottom: 1px solid var(--lcd-sel-bottom-edge);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.3);
+}
+
+.menu-row.selected .sub { color: var(--lcd-sel-subtext); }
+.menu-row.selected .chevron { color: #ffffff; opacity: 1; }
+
+.empty-state {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 15px;
+  color: var(--lcd-subtext);
+  padding: 16px;
+  line-height: 1.5;
+}
+
+/* ---------- RGB Tuner / Slider Screen ---------- */
+
+.rgb-tuner-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 8px 10px;
+}
+
+.rgb-preview-box {
+  height: 28px;
+  border-radius: 4px;
+  border: 1px solid rgba(0,0,0,0.3);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  color: #fff;
+}
+
+.rgb-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+}
+
+.rgb-row.selected {
+  background: var(--lcd-sel-bg);
+  color: var(--lcd-sel-text);
+  border-color: var(--lcd-sel-top-edge);
+}
+
+.rgb-label {
+  font-size: 13px;
+  font-weight: 700;
+  width: 72px;
+}
+
+.rgb-bar-track {
+  flex: 1;
+  height: 16px;
+  background: rgba(128,128,128,0.3);
+  border-radius: 4px;
+  margin: 0 8px;
+  overflow: hidden;
+  touch-action: none;
+  cursor: pointer;
+}
+
+.rgb-bar-fill {
+  height: 100%;
+  background: #357ee3;
+  border-radius: 4px;
+}
+
+.rgb-val {
+  font-size: 13px;
+  font-weight: 700;
+  width: 34px;
+  text-align: right;
+}
+
+.rgb-hint {
+  font-size: 11.5px;
+  text-align: center;
+  color: var(--lcd-subtext);
+}
+
+/* ---------- Now Playing Screen ---------- */
+
+.now-playing-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 8px 12px;
+}
+
+.np-track-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lcd-subtext);
+  text-align: center;
+}
+
+.np-body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0;
+}
+
+.np-art-wrapper {
+  position: relative;
+  flex: 0 0 clamp(75px, 14dvh, 92px);
+  height: clamp(75px, 14dvh, 92px);
+}
+
+.np-art {
+  width: 100%;
+  height: 100%;
+  border-radius: 3px;
+  background: #dedede center/cover no-repeat;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  color: #aaa;
+}
+
+.np-art-reflection {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  height: 38%;
+  background: inherit;
+  border-radius: 3px;
+  transform: scaleY(-1);
+  opacity: 0.28;
+  mask-image: linear-gradient(to top, rgba(0,0,0,0) 0%, rgba(0,0,0,0.8) 100%);
+  -webkit-mask-image: linear-gradient(to top, rgba(0,0,0,0) 0%, rgba(0,0,0,0.8) 100%);
+}
+
+.np-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.np-title {
+  font-size: 17px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np-artist, .np-album {
+  font-size: 14px;
+  color: var(--lcd-subtext);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np-progress-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.np-bar-track {
+  width: 100%;
+  height: 8px;
+  background: rgba(128,128,128,0.25);
+  border-radius: 4px;
+  border: 1px solid rgba(128,128,128,0.4);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.25);
+  position: relative;
+  overflow: visible;
+  touch-action: none;
+  cursor: pointer;
+}
+
+.np-bar-fill {
+  height: 100%;
+  background: linear-gradient(180deg, #70a6f2 0%, #2974e0 100%);
+  border-radius: 3px 0 0 3px;
+  position: relative;
+}
+
+.np-scrubber-thumb {
+  position: absolute;
+  right: -5px;
+  top: -3px;
+  width: 12px;
+  height: 12px;
+  background: radial-gradient(circle, #ffffff 40%, #b2b5ba 100%);
+  border: 1px solid #5a5d62;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+
+.np-time-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lcd-subtext);
+}
+
+/* ---------- Now Playing Screen: Cover Flow style ---------- */
+
+.coverflow-screen {
+  position: relative;
+  z-index: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 20% 14px 10px;
+}
+
+/* Blurred, darkened current cover as the screen background. Lives behind the
+   foreground content in its own layer (z-index: -1 within the
+   .coverflow-screen stacking context) since filter: blur() would otherwise
+   blur the text/covers on top of it too. Sized past the element's own edges
+   so the blur doesn't fade to transparent at the boundary. */
+.cf-bg {
+  position: absolute;
+  inset: -30px;
+  z-index: -1;
+  background-size: cover;
+  background-position: center;
+  filter: blur(24px) brightness(0.5) saturate(1.15);
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.cf-stage {
+  position: relative;
+  height: clamp(120px, 26dvh, 165px);
+  perspective: 550px;
+}
+
+.cf-track {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: clamp(84px, 17dvh, 108px);
+  height: clamp(84px, 17dvh, 108px);
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.45s ease, left 0.45s ease, width 0.45s ease, height 0.45s ease;
+}
+
+.cf-track.cf-prev {
+  left: 18%;
+  z-index: 2;
+  opacity: 0.72;
+  transform: translate(-50%, 8px) scale(0.72) rotateY(44deg);
+}
+
+.cf-track.cf-current {
+  left: 50%;
+  z-index: 3;
+  width: clamp(115px, 23dvh, 145px);
+  height: clamp(115px, 23dvh, 145px);
+  transform: translate(-50%, 0) scale(1) rotateY(0deg);
+}
+
+.cf-track.cf-next {
+  left: 82%;
+  z-index: 2;
+  opacity: 0.72;
+  transform: translate(-50%, 8px) scale(0.72) rotateY(-44deg);
+}
+
+/* Used to recycle a cover into the opposite slot: jump it off-stage with
+   transitions disabled for one frame, then let it slide into view normally. */
+.cf-track.cf-notransition {
+  transition: none !important;
+}
+
+.cf-track.cf-offstage-right {
+  left: 112%;
+  z-index: 1;
+  opacity: 0;
+  transform: translate(-50%, 6px) scale(0.6) rotateY(-55deg);
+}
+
+.cf-track.cf-offstage-left {
+  left: -12%;
+  z-index: 1;
+  opacity: 0;
+  transform: translate(-50%, 6px) scale(0.6) rotateY(55deg);
+}
+
+/* No track in that direction (start/end of queue, no repeat) — hide the slot
+   entirely rather than showing an empty placeholder cover. Placed after the
+   role rules so it wins the tie on specificity. */
+.cf-track.cf-empty {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+
+.cf-art {
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  background: rgba(128,128,128,0.35) center/cover no-repeat;
+  box-shadow: 0 8px 18px rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  color: rgba(255,255,255,0.65);
+}
+
+.cf-track.cf-current .cf-art {
+  box-shadow: 0 12px 26px rgba(0,0,0,0.5);
+}
+
+.cf-stage.cf-pop .cf-track.cf-current {
+  animation: cfPop 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes cfPop {
+  0% { transform: translate(-50%, 0) scale(0.8) rotateY(0deg); opacity: 0.4; }
+  60% { transform: translate(-50%, 0) scale(1.06) rotateY(0deg); opacity: 1; }
+  100% { transform: translate(-50%, 0) scale(1) rotateY(0deg); opacity: 1; }
+}
+
+.cf-meta {
+  text-align: center;
+  padding: 2px 0;
+}
+
+.cf-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--cf-text, #15161a);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cf-artist, .cf-album {
+  font-size: 13px;
+  color: var(--cf-sub, rgba(21,22,26,0.7));
+  text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cf-progress-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cf-bar-track {
+  width: 100%;
+  height: 8px;
+  background: rgba(128,128,128,0.3);
+  border-radius: 4px;
+  border: 1px solid rgba(128,128,128,0.4);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.25);
+  position: relative;
+  touch-action: none;
+  cursor: pointer;
+}
+
+.cf-bar-fill {
+  height: 100%;
+  background: linear-gradient(180deg, #70a6f2 0%, #2974e0 100%);
+  border-radius: 3px 0 0 3px;
+  position: relative;
+}
+
+.cf-scrubber-thumb {
+  position: absolute;
+  right: -5px;
+  top: -3px;
+  width: 12px;
+  height: 12px;
+  background: radial-gradient(circle, #ffffff 40%, #b2b5ba 100%);
+  border: 1px solid #5a5d62;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+
+.cf-time-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cf-sub, rgba(21,22,26,0.7));
+  text-shadow: 0 1px 2px rgba(0,0,0,0.15);
+}
+
+/* ---------- Overlays ---------- */
+
+.volume-overlay {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 10px;
+  background: rgba(18, 20, 23, 0.9);
+  border-radius: 6px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  z-index: 10;
+}
+.volume-overlay.show { opacity: 1; }
+.volume-overlay .vicon { font-size: 13px; }
+.volume-overlay .vtrack {
+  flex: 1;
+  height: 6px;
+  background: rgba(255,255,255,0.2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.volume-overlay .vfill {
+  height: 100%;
+  background: #ffffff;
+  border-radius: 3px;
+}
+
+.track-hud-overlay {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 10px;
+  background: rgba(18, 20, 23, 0.92);
+  border-radius: 6px;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 10;
+}
+.track-hud-overlay.show { opacity: 1; }
+.track-hud-overlay .thud-icon {
+  font-size: 14px;
+  letter-spacing: -1px;
+  color: #6aa5f2;
+}
+.track-hud-overlay .thud-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 190px;
+}
+
+/* ---------- Click Wheel Hardware ---------- */
+
+.clickwheel-area {
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+.wheel-ring {
+  position: relative;
+  width: min(66vw, 34dvh, 240px);
+  height: min(66vw, 34dvh, 240px);
+  border-radius: 50%;
+  background: var(--wheel-bg);
+  box-shadow: var(--wheel-shadow);
+  touch-action: none;
+}
+
+.wheel-btn {
+  position: absolute;
+  background: none;
+  border: none;
+  color: var(--wheel-btn-text);
+  font-size: clamp(11.5px, 3.4vw, 13px);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34%;
+  height: 28%;
+  z-index: 2;
+  transition: color 0.1s ease, transform 0.05s ease;
+}
+
+.wheel-btn:active {
+  color: var(--wheel-btn-active);
+  transform: scale(0.96);
+}
+
+.wheel-btn.menu { top: 2%; left: 33%; }
+.wheel-btn.next { top: 36%; right: 2%; }
+.wheel-btn.prev { top: 36%; left: 2%; }
+.wheel-btn.play { bottom: 2%; left: 33%; }
+
+.wheel-btn .glyph {
+  font-size: 13px;
+  letter-spacing: -1px;
+}
+
+.center-btn {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 38%;
+  height: 38%;
+  border-radius: 50%;
+  background: var(--center-bg);
+  border: 1px solid var(--center-rim);
+  box-shadow:
+    inset 0 2px 4px rgba(0,0,0,0.18),
+    0 1px 2px rgba(255,255,255,0.7);
+  z-index: 3;
+  cursor: pointer;
+  transition: filter 0.08s ease, transform 0.05s ease;
+}
+
+.center-btn:active {
+  transform: translate(-50%, -50%) scale(0.97);
+  filter: brightness(0.92);
+}
+
+.clickwheel-area.held { opacity: 0.75; filter: grayscale(0.2); }
+.clickwheel-area.held button { pointer-events: none; }
+
+/* ============================================================
+   Stickers Layer System (Touch-Engine Everywhere)
+   ============================================================ */
+
+.stickers-container {
+  position: absolute;
+  inset: 0;
+  border-radius: 40px;
+  overflow: hidden;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.stickers-container.editing {
+  pointer-events: auto;
+}
+
+.ipod-sticker {
+  position: absolute;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  pointer-events: auto;
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.4));
+  transform-origin: center center;
+}
+
+.stickers-container.locked .ipod-sticker {
+  pointer-events: none; /* Passes touches through to the wheel and screen when locked */
+}
+
+.ipod-sticker img {
+  display: block;
+  width: 100%;
+  height: auto;
+  pointer-events: none;
+}
+
+.ipod-sticker.selected {
+  outline: 2px dashed #007aff;
+  outline-offset: 4px;
+}
+
+.sticker-controls {
+  display: none;
+  position: absolute;
+  inset: -16px;
+  pointer-events: none;
+  -webkit-touch-callout: none;
+}
+
+.ipod-sticker.selected .sticker-controls {
+  display: block;
+}
+
+/* Touch-optimized Sticker Handles (Min 34px-36px for mobile thumbs) */
+.sticker-btn-del {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #ff3b30;
+  color: #fff;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.45);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.sticker-btn-resize {
+  position: absolute;
+  bottom: -12px;
+  right: -12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #007aff;
+  color: #fff;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.45);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: nwse-resize;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.sticker-btn-rot {
+  position: absolute;
+  top: -12px;
+  left: -12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #ff9500;
+  color: #fff;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.45);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+/* Floating Sticker Toolbar */
+.sticker-edit-bar {
+  position: absolute;
+  bottom: calc(var(--safe-bottom) + 14px);
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: rgba(20, 22, 26, 0.95);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 24px;
+  padding: 7px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+  z-index: 30;
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.2s ease;
+}
+
+.sticker-edit-bar.show {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.seb-label {
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.seb-btn {
+  border: none;
+  border-radius: 14px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.seb-btn.add {
+  background: #357ee3;
+  color: #ffffff;
+}
+
+.seb-btn.done {
+  background: #34c759;
+  color: #ffffff;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  clip: rect(0 0 0 0);
+  overflow: hidden;
+}

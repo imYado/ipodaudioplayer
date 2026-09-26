@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>iPod</title>
+<meta name="description" content="A retro click-wheel music player. 100% offline." />
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#b4b7ba" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="iPod" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<link rel="icon" href="icons/favicon.png" />
+
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="theme-silver">
+
+<div id="app">
+  <div class="ipod-shell" id="ipodShell">
+    
+    <!-- Metallic surface sheen & specular light highlights -->
+    <div class="shell-metal-sheen" aria-hidden="true"></div>
+    <div class="shell-edge-shine" aria-hidden="true"></div>
+
+    <!-- Top Edge Hardware (Hold switch & Headphone jack) -->
+    <div class="top-hardware">
+      <div class="jack-port" aria-hidden="true"></div>
+      <div class="hold-group">
+        <span class="hold-label">HOLD</span>
+        <button class="hold-switch" id="holdSwitch" aria-pressed="false" aria-label="Toggle Hold"></button>
+      </div>
+    </div>
+
+    <!-- Screen Bezel -->
+    <div class="screen-bezel">
+      <div class="screen-frame">
+        <div class="screen" id="screen">
+          <div class="status-bar" id="statusBar">
+            <div class="status-left">
+              <span class="play-state-icon" id="statusPlayIcon">▶</span>
+              <span class="hold-badge" id="holdBadge">🔒</span>
+            </div>
+            <span class="title" id="screenTitle">iPod</span>
+            <div class="batt" aria-label="Battery">
+              <span class="batt-shell">
+                <span class="batt-bar"></span>
+                <span class="batt-bar"></span>
+                <span class="batt-bar"></span>
+              </span>
+            </div>
+          </div>
+
+          <div class="screen-content" id="screenContent" aria-live="polite"></div>
+
+          <!-- Volume Overlay -->
+          <div class="volume-overlay" id="volumeOverlay">
+            <span class="vicon">🔊</span>
+            <div class="vtrack"><div class="vfill" id="volumeFill"></div></div>
+          </div>
+
+          <!-- Track Skip HUD Overlay -->
+          <div class="track-hud-overlay" id="trackHudOverlay">
+            <span class="thud-icon" id="trackHudIcon">▶▶|</span>
+            <span class="thud-text" id="trackHudText">Next Track</span>
+          </div>
+        </div>
+        <!-- Realistic glass reflection shine across display -->
+        <div class="screen-glare" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <!-- Click Wheel -->
+    <div class="clickwheel-area" id="clickwheel">
+      <div class="wheel-ring" id="wheelRing">
+        <button class="wheel-btn menu" data-action="menu" aria-label="Menu">MENU</button>
+        <button class="wheel-btn prev" data-action="prev" aria-label="Previous">
+          <span class="glyph">|◀◀</span>
+        </button>
+        <button class="wheel-btn next" data-action="next" aria-label="Next">
+          <span class="glyph">▶▶|</span>
+        </button>
+        <button class="wheel-btn play" data-action="playpause" aria-label="Play / Pause">
+          <span class="glyph">▶❚❚</span>
+        </button>
+        
+        <button class="center-btn" id="centerBtn" data-action="select" aria-label="Select"></button>
+      </div>
+    </div>
+
+    <!-- Stickers Layer: allows placing PNGs anywhere across the shell & screen -->
+    <div class="stickers-container locked" id="stickersContainer"></div>
+
+    <!-- Floating Sticker Edit Toolbar (appears when editing stickers) -->
+    <div class="sticker-edit-bar" id="stickerEditBar">
+      <span class="seb-label">Stickers</span>
+      <button class="seb-btn add" id="sebAddBtn">+ Add</button>
+      <button class="seb-btn done" id="sebDoneBtn">Lock</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- Hidden inputs for media and customization -->
+<input type="file" id="fileInput" accept="audio/*,.mp3,.m4a,.aac,.wav,.mp4" multiple class="visually-hidden" tabindex="-1" />
+<input type="file" id="stickerFileInput" accept="image/*,.png,.jpg,.jpeg,.webp,.svg,.gif" class="visually-hidden" tabindex="-1" />
+
+<audio id="audioEl" preload="metadata" playsinline></audio>
+
+<script src="js/id3.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
