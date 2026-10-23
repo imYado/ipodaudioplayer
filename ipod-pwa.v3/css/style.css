@@ -1220,8 +1220,8 @@ body {
 
   .carplay {
     --cp-text: #ffffff;
-    --cp-sub: rgba(235, 235, 245, 0.6);
-    --cp-faint: rgba(235, 235, 245, 0.3);
+    --cp-sub: rgba(255, 255, 255, 0.68);
+    --cp-faint: rgba(255, 255, 255, 0.3);
     --cp-accent: #fa2d48;
     --cp-dock-w: clamp(64px, 11vw, 84px);
 
@@ -1256,8 +1256,12 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: calc(env(safe-area-inset-top, 0px) + 8px) 0 calc(env(safe-area-inset-bottom, 0px) + 8px);
-  background: rgba(28, 28, 30, 0.92);
-  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  position: relative;
+  background: rgba(255, 255, 255, 0.07);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  backdrop-filter: blur(24px) saturate(1.6);
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.15);
   z-index: 2;
 }
 
@@ -1341,7 +1345,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 .cp-home svg { width: 52%; height: 52%; }
 .cp-home:active { background: rgba(255, 255, 255, 0.26); }
@@ -1350,6 +1355,7 @@ body {
 
 .cp-main {
   position: relative;
+  z-index: 1;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -1443,6 +1449,24 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.cp-marquee-inner { display: inline-block; }
+
+/* Long titles scroll back and forth instead of truncating, like CarPlay */
+.cp-title.scrolling {
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 18px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 18px), transparent 100%);
+  padding-left: 10px;
+  margin-left: -10px;
+}
+.cp-title.scrolling .cp-marquee-inner {
+  animation: cpMarquee var(--cp-marquee-time, 8s) ease-in-out infinite;
+}
+@keyframes cpMarquee {
+  0%, 20%   { transform: translateX(0); }
+  70%, 85%  { transform: translateX(var(--cp-marquee-dist, 0px)); }
+  100%      { transform: translateX(0); }
+}
 
 .cp-artist, .cp-album {
   font-size: clamp(15px, 4.6dvh, 19px);
@@ -1452,14 +1476,12 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.cp-artist { color: var(--cp-accent); }
 
 .cp-bar-track {
   position: relative;
   height: 6px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.22);
-  overflow: hidden;
+  background: rgba(255, 255, 255, 0.25);
   touch-action: none;
   cursor: pointer;
 }
@@ -1473,7 +1495,7 @@ body {
   height: 100%;
   width: 0;
   background: #fff;
-  border-radius: 3px 0 0 3px;
+  border-radius: 3px;
 }
 
 .cp-time-row {
@@ -1527,8 +1549,8 @@ body {
 }
 .cp-toggle svg { width: 22px; height: 22px; }
 .cp-toggle.on {
-  color: #fff;
-  background: var(--cp-accent);
+  color: #000;
+  background: rgba(255, 255, 255, 0.92);
 }
 .cp-repeat-one {
   display: none;
@@ -1634,3 +1656,36 @@ body {
   0% { height: 25%; }
   100% { height: 100%; }
 }
+
+/* ---------- Blurred album-art backdrop ---------- */
+
+/* Two stacked layers so a track change cross-fades between covers. The
+   cover is scaled up, heavily blurred and darkened so white text and
+   controls stay readable on any artwork. */
+.cp-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+.cp-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.12) 0%, rgba(0, 0, 0, 0.32) 100%);
+}
+.cp-bg-layer {
+  position: absolute;
+  inset: -15%;
+  background: center / cover no-repeat;
+  filter: blur(48px) saturate(1.7) brightness(0.62);
+  transform: translateZ(0);
+  opacity: 0;
+  transition: opacity 0.7s ease;
+}
+.cp-bg-layer.show { opacity: 1; }
+
+/* Lists in CarPlay sit on a plain dark backdrop */
+.carplay.view-songs .cp-bg { opacity: 0; }
