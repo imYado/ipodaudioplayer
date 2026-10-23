@@ -1,0 +1,6 @@
+{
+  "name": "retro-ipod",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" }
+}

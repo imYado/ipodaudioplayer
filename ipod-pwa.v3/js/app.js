@@ -258,6 +258,8 @@ const state = {
   npBuildToken: 0,
   cfSlots: null,
   shuffleOrigQueue: null,
+  streamTracks: new Map(), // id -> track meta for songs from Spotify playlists
+  loadToken: 0,
 };
 
 const ipodShellEl = document.getElementById("ipodShell");
@@ -884,6 +886,7 @@ function buildMainMenu() {
       { label: "Songs", sub: String(state.library.length), chevron: true, action: () => pushScreen(buildTrackListScreen("Songs", sortedSongs())) },
       { label: "Artists", chevron: true, action: () => pushScreen(buildArtistsScreen()) },
       { label: "Albums", chevron: true, action: () => pushScreen(buildAlbumsScreen()) },
+      { label: "Spotify Playlists", chevron: true, action: () => pushScreen(buildPlaylistsScreen()) },
       { label: "Shuffle Songs", chevron: false, action: () => shuffleAll() },
       { label: "Add Music...", chevron: false, action: () => triggerAddMusic() },
       { label: "Settings", chevron: true, action: () => pushScreen(buildSettingsScreen()) },
@@ -1014,11 +1017,11 @@ function setupSeekBar(trackEl) {
   if (!trackEl) return;
   let dragging = false;
   const seekFromClientX = (clientX) => {
-    const dur = audioEl.duration;
+    const dur = player.duration;
     if (!isFinite(dur) || dur <= 0) return;
     const rect = trackEl.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    audioEl.currentTime = pct * dur;
+    player.currentTime = pct * dur;
   };
   trackEl.addEventListener("pointerdown", (e) => {
     dragging = true;
@@ -1047,7 +1050,7 @@ function renderNowPlayingClassic() {
 }
 
 function buildNowPlayingClassicDOM() {
-  const track = state.library.find((t) => t.id === state.currentTrackId);
+  const track = getTrack(state.currentTrackId);
   const currentIdx = state.queue.indexOf(state.currentTrackId);
   const trackCountText = currentIdx !== -1
     ? `${currentIdx + 1} of ${state.queue.length}`
@@ -1089,9 +1092,9 @@ function buildNowPlayingClassicDOM() {
 }
 
 function updateNowPlayingClassicProgress() {
-  const track = state.library.find((t) => t.id === state.currentTrackId);
-  const dur = audioEl.duration || (track ? track.duration : 0) || 0;
-  const cur = audioEl.currentTime || 0;
+  const track = getTrack(state.currentTrackId);
+  const dur = player.duration || (track ? track.duration : 0) || 0;
+  const cur = player.currentTime || 0;
   const remaining = Math.max(0, dur - cur);
   const pct = dur ? Math.min(100, (cur / dur) * 100) : 0;
 
@@ -1123,6 +1126,7 @@ function neighborTrackIds() {
 function getAverageColorFromUrl(url) {
   return new Promise((resolve, reject) => {
     const img = new Image();
+    if (/^https?:/.test(url)) img.crossOrigin = "anonymous";
     img.onload = () => {
       try {
         const c = document.createElement("canvas");
@@ -1143,8 +1147,15 @@ function getAverageColorFromUrl(url) {
 async function getArtForTrack(id) {
   if (!id) return null;
   if (state.npCoverCache.has(id)) return state.npCoverCache.get(id);
-  const rec = await idbGet("art", id);
   const entry = { url: null, color: null };
+  if (isStreamId(id)) {
+    const t = getTrack(id);
+    entry.url = (t && t.artUrl) || null;
+    if (entry.url) entry.color = await getAverageColorFromUrl(entry.url).catch(() => null);
+    // Not cached: the art URL can arrive later (filled in by the YouTube match).
+    return entry;
+  }
+  const rec = await idbGet("art", id);
   if (rec && rec.blob) {
     entry.url = URL.createObjectURL(rec.blob);
     entry.color = await getAverageColorFromUrl(entry.url).catch(() => null);
@@ -1286,7 +1297,7 @@ function slideCoverFlow(direction) {
     });
   }
 
-  const track = state.library.find((t) => t.id === state.currentTrackId);
+  const track = getTrack(state.currentTrackId);
   updateCoverFlowMeta(track);
   applyCoverFlowBackground(state.currentTrackId, myToken);
 
@@ -1305,7 +1316,7 @@ function teleportOffstage(el, side) {
 
 async function buildCoverFlowDOM() {
   const myToken = ++state.npBuildToken;
-  const track = state.library.find((t) => t.id === state.currentTrackId);
+  const track = getTrack(state.currentTrackId);
   const { prevId, nextId } = neighborTrackIds();
 
   screenContentEl.style.backgroundColor = settings.screenColor;
@@ -1360,9 +1371,9 @@ async function buildCoverFlowDOM() {
 }
 
 function updateCoverFlowProgress() {
-  const track = state.library.find((t) => t.id === state.currentTrackId);
-  const dur = audioEl.duration || (track ? track.duration : 0) || 0;
-  const cur = audioEl.currentTime || 0;
+  const track = getTrack(state.currentTrackId);
+  const dur = player.duration || (track ? track.duration : 0) || 0;
+  const cur = player.currentTime || 0;
   const remaining = Math.max(0, dur - cur);
   const pct = dur ? Math.min(100, (cur / dur) * 100) : 0;
 
@@ -1430,13 +1441,15 @@ function setCarPlayView(view) {
 }
 
 function renderCarPlayList() {
-  const songs = sortedSongs();
+  const streaming = isStreamId(state.currentTrackId) && state.queue.length;
+  const songs = streaming ? state.queue.map(getTrack).filter(Boolean) : sortedSongs();
+  cpSongsEl.querySelector(".cp-topbar-title").textContent = streaming ? (state.queueName || "Playlist") : "Songs";
   if (!songs.length) {
     cpListEl.innerHTML = `<div class="cp-list-empty">No songs yet.<br>Rotate to portrait to add music.</div>`;
     return;
   }
   cpListEl.innerHTML = songs.map((t, i) => `
-    <button class="cp-row${t.id === state.currentTrackId ? " current" : ""}" data-cp="play" data-idx="${i}">
+    <button class="cp-row${t.id === state.currentTrackId ? " current" : ""}" data-cp="${streaming ? "playqueue" : "play"}" data-idx="${i}">
       <span class="cp-row-icon">${t.id === state.currentTrackId ? "♫" : ""}</span>
       <span class="cp-row-text">
         <span class="cp-row-title">${esc(t.title)}</span>
@@ -1480,10 +1493,11 @@ function setCarPlayTitle(text) {
 
 function updateCarPlay() {
   if (!isCarPlay()) return;
-  const track = state.library.find((t) => t.id === state.currentTrackId);
+  const track = getTrack(state.currentTrackId);
 
   carplayEl.classList.toggle("is-playing", state.isPlaying);
   carplayEl.classList.toggle("is-empty", !track);
+  carplayEl.classList.toggle("is-stream", !!(track && track.stream));
 
   if (cpBuiltTrackId !== state.currentTrackId || cpBuiltArtUrl !== state.artObjectUrl) {
     cpBuiltTrackId = state.currentTrackId;
@@ -1497,8 +1511,8 @@ function updateCarPlay() {
     if (cpView === "songs") renderCarPlayList();
   }
 
-  const dur = audioEl.duration || (track ? track.duration : 0) || 0;
-  const cur = track ? (audioEl.currentTime || 0) : 0;
+  const dur = player.duration || (track ? track.duration : 0) || 0;
+  const cur = track ? (player.currentTime || 0) : 0;
   cpBarFillEl.style.width = (dur ? Math.min(100, (cur / dur) * 100) : 0) + "%";
   cpTimeCurEl.textContent = cpTime(cur);
   cpTimeRemainingEl.textContent = "-" + cpTime(Math.max(0, dur - cur));
@@ -1549,6 +1563,12 @@ carplayEl.addEventListener("click", (e) => {
       setCarPlayView("nowplaying");
       break;
     }
+    case "playqueue":
+      state.shuffleOrigQueue = null;
+      playQueueIndex(Number(btn.dataset.idx));
+      setCarPlayView("nowplaying");
+      break;
+    case "retry": retryCurrentMatch(); break;
     case "playpause":
       if (!state.currentTrackId) { setCarPlayView("songs"); break; }
       togglePlayPause();
@@ -1584,16 +1604,21 @@ setInterval(updateCarPlayClock, 10000);
    9. Playback Engine
 --------------------------------------------------------- */
 async function loadAndPlay(trackId) {
+  const myLoad = ++state.loadToken;
   state.currentTrackId = trackId;
 
   if (state.audioObjectUrl) { URL.revokeObjectURL(state.audioObjectUrl); state.audioObjectUrl = null; }
   if (state.artObjectUrl) { URL.revokeObjectURL(state.artObjectUrl); state.artObjectUrl = null; }
+
+  if (isStreamId(trackId)) { await loadAndPlayStream(trackId, myLoad); return; }
+  stopYouTube();
 
   const [audioRec, artRec] = await Promise.all([
     idbGet("audio", trackId),
     idbGet("art", trackId),
   ]);
 
+  if (myLoad !== state.loadToken) return; // superseded by a newer selection
   if (!audioRec || !audioRec.blob) { console.warn("Missing audio blob for", trackId); return; }
 
   state.audioObjectUrl = URL.createObjectURL(audioRec.blob);
@@ -1627,8 +1652,8 @@ function playNext() {
 }
 
 function playPrev(forceSkip = false) {
-  if (!forceSkip && audioEl.currentTime > 3) {
-    audioEl.currentTime = 0;
+  if (!forceSkip && player.currentTime > 3) {
+    player.currentTime = 0;
     return;
   }
   if (state.queueIndex - 1 >= 0) {
@@ -1640,6 +1665,7 @@ function playPrev(forceSkip = false) {
 
 function setQueueFromScreen(screen, idx) {
   state.shuffleOrigQueue = null;
+  state.queueName = screen.title;
   state.queue = screen.trackIds.slice();
   playQueueIndex(idx);
 }
@@ -1652,47 +1678,466 @@ function shuffleAll() {
 }
 
 function togglePlayPause() {
-  if (!audioEl.src) return;
-  if (audioEl.paused) audioEl.play().catch(() => {});
-  else audioEl.pause();
+  if (!player.hasSource) return;
+  if (player.paused) player.play().catch(() => {});
+  else player.pause();
 }
 
-audioEl.addEventListener("play", () => {
+/* Playback events are shared by the local <audio> element and the YouTube
+   player (which calls these from its state-change callback). */
+function handlePlay() {
   state.isPlaying = true;
   if (statusPlayIconEl) statusPlayIconEl.textContent = "▶";
   updateMediaSessionPlaybackState();
   renderNowPlayingIfTop();
-});
+  updateWakeLock();
+}
 
-audioEl.addEventListener("pause", () => {
+function handlePause() {
   state.isPlaying = false;
   if (statusPlayIconEl) statusPlayIconEl.textContent = "❚❚";
   updateMediaSessionPlaybackState();
   renderNowPlayingIfTop();
-});
+  updateWakeLock();
+}
 
-audioEl.addEventListener("timeupdate", () => {
+function handleTimeUpdate() {
   renderNowPlayingIfTop();
   try {
-    if ("mediaSession" in navigator && isFinite(audioEl.duration)) {
+    const dur = player.duration;
+    if ("mediaSession" in navigator && isFinite(dur) && dur > 0) {
       navigator.mediaSession.setPositionState({
-        duration: audioEl.duration || 0,
-        playbackRate: audioEl.playbackRate || 1,
-        position: Math.min(audioEl.currentTime || 0, audioEl.duration || 0),
+        duration: dur,
+        playbackRate: 1,
+        position: Math.min(player.currentTime || 0, dur),
       });
     }
   } catch (e) {}
-});
+}
 
-audioEl.addEventListener("ended", () => {
+function handleEnded() {
   const mode = settings.repeat;
-  if (mode === "one") { audioEl.currentTime = 0; audioEl.play().catch(() => {}); return; }
+  if (mode === "one") { player.currentTime = 0; player.play().catch(() => {}); return; }
   if (state.queueIndex + 1 < state.queue.length) { playNext(); return; }
   if (mode === "all" && state.queue.length) { playQueueIndex(0); return; }
   state.isPlaying = false;
   if (statusPlayIconEl) statusPlayIconEl.textContent = "❚❚";
   renderNowPlayingIfTop();
-});
+  updateWakeLock();
+}
+
+// While a YouTube song is active the <audio> element is idle; ignore its
+// events (e.g. the pause fired when we stop it) so they can't clobber state.
+audioEl.addEventListener("play", () => { if (!yt.active) handlePlay(); });
+audioEl.addEventListener("pause", () => { if (!yt.active) handlePause(); });
+audioEl.addEventListener("timeupdate", () => { if (!yt.active) handleTimeUpdate(); });
+audioEl.addEventListener("ended", () => { if (!yt.active) handleEnded(); });
+
+/* ---------------------------------------------------------
+   9b. Streaming — Spotify playlists played through YouTube
+   A pasted Spotify link is read by /api/playlist (track list only);
+   each song is then matched to a YouTube video by /api/match and played
+   in YouTube's embedded player, which floats over the album art.
+--------------------------------------------------------- */
+const STREAM_PREFIX = "yt:";
+const PLAYLISTS_KEY = "ripod:playlists";
+const MATCHES_KEY = "ripod:ytMatches";
+
+const ytDockEl = document.getElementById("ytDock");
+const ytHintEl = document.getElementById("ytHint");
+const toastEl = document.getElementById("toast");
+
+const yt = {
+  apiPromise: null,
+  playerPromise: null,
+  player: null,
+  active: false,   // current track is a YouTube one
+  videoId: null,
+  state: -1,       // YT.PlayerState
+  pollTimer: null,
+  hintTimer: null,
+};
+
+function isStreamId(id) { return typeof id === "string" && id.startsWith(STREAM_PREFIX); }
+
+function getTrack(id) {
+  if (!id) return null;
+  return state.streamTracks.get(id) || state.library.find((t) => t.id === id) || null;
+}
+
+/* One interface over whichever engine is playing the current track. */
+const player = {
+  get currentTime() {
+    if (yt.active) return (yt.player && yt.player.getCurrentTime && yt.player.getCurrentTime()) || 0;
+    return audioEl.currentTime;
+  },
+  set currentTime(v) {
+    if (yt.active) { if (yt.player && yt.player.seekTo) yt.player.seekTo(v, true); }
+    else audioEl.currentTime = v;
+  },
+  get duration() {
+    if (yt.active) return (yt.player && yt.player.getDuration && yt.player.getDuration()) || 0;
+    return audioEl.duration;
+  },
+  get paused() {
+    if (yt.active) return yt.state !== 1 && yt.state !== 3;
+    return audioEl.paused;
+  },
+  get hasSource() { return yt.active ? !!yt.videoId : !!audioEl.src; },
+  play() {
+    if (yt.active) { if (yt.player && yt.player.playVideo) yt.player.playVideo(); return Promise.resolve(); }
+    return audioEl.play();
+  },
+  pause() {
+    if (yt.active) { if (yt.player && yt.player.pauseVideo) yt.player.pauseVideo(); }
+    else audioEl.pause();
+  },
+};
+
+let toastTimer = null;
+function showToast(msg, ms = 2600) {
+  toastEl.textContent = msg;
+  toastEl.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), ms);
+}
+
+/* ---- Saved playlists ---- */
+function readJSON(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch (e) { return fallback; }
+}
+function writeJSON(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+}
+
+function savedPlaylists() { return readJSON(PLAYLISTS_KEY, []); }
+
+function registerPlaylistTracks(pl) {
+  const matches = readJSON(MATCHES_KEY, {});
+  pl.tracks.forEach((t) => {
+    const id = STREAM_PREFIX + t.id;
+    const m = matches[t.id];
+    state.streamTracks.set(id, {
+      id,
+      spotifyId: t.id,
+      title: t.title,
+      artist: t.artist || "Unknown Artist",
+      album: t.album || pl.name || "",
+      duration: (t.durationMs || 0) / 1000,
+      artUrl: t.image || (m && m.art) || pl.image || null,
+      hasOwnArt: !!(t.image || (m && m.art)),
+      stream: true,
+    });
+  });
+}
+
+function loadSavedPlaylists() {
+  savedPlaylists().forEach(registerPlaylistTracks);
+}
+
+function buildPlaylistsScreen() {
+  const lists = savedPlaylists();
+  const items = [];
+  if (isStreamId(state.currentTrackId)) {
+    items.push({ label: "Wrong Song? Try Another", chevron: false, action: () => retryCurrentMatch() });
+  }
+  lists.forEach((pl) => {
+    items.push({
+      label: pl.name, sub: String(pl.tracks.length), chevron: true,
+      action: () => pushScreen(buildStreamPlaylistScreen(pl.id)),
+    });
+  });
+  items.push({ label: "Add Playlist Link...", chevron: false, action: () => addPlaylistFromPrompt() });
+  return { key: "playlists", kind: "list", title: "Spotify Playlists", selected: 0, scrollOffset: 0, items };
+}
+
+function buildStreamPlaylistScreen(playlistId) {
+  const pl = savedPlaylists().find((p) => p.id === playlistId);
+  if (!pl) return buildPlaylistsScreen();
+  const trackIds = pl.tracks.map((t) => STREAM_PREFIX + t.id);
+  const items = [
+    {
+      label: "Shuffle", chevron: false, action: () => {
+        state.shuffleOrigQueue = null;
+        state.queue = shuffleArray(trackIds);
+        state.queueName = pl.name;
+        playQueueIndex(0);
+      },
+    },
+    ...pl.tracks.map((t, i) => ({ label: t.title, sub: formatDuration((t.durationMs || 0) / 1000), chevron: false, trackIndex: i })),
+    { label: "Remove Playlist", chevron: false, action: () => removePlaylist(pl.id) },
+  ];
+  return { key: "stream-" + pl.id, kind: "list", title: pl.name, selected: 0, scrollOffset: 0, trackIds, items };
+}
+
+function removePlaylist(id) {
+  writeJSON(PLAYLISTS_KEY, savedPlaylists().filter((p) => p.id !== id));
+  popScreen();
+  replaceTop(buildPlaylistsScreen());
+}
+
+async function addPlaylistFromPrompt() {
+  const link = window.prompt("Paste a Spotify playlist or album link");
+  if (!link) return;
+  const loading = { key: "loading-playlist", kind: "list", title: "Loading…", selected: 0, scrollOffset: 0, items: [], emptyMessage: "Loading playlist…" };
+  pushScreen(loading);
+  try {
+    const res = await fetch(`api/playlist?url=${encodeURIComponent(link.trim())}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Couldn't load that link.");
+    const pl = { id: `${data.type}:${data.id}`, name: data.name, image: data.image, tracks: data.tracks };
+    writeJSON(PLAYLISTS_KEY, [pl, ...savedPlaylists().filter((p) => p.id !== pl.id)]);
+    registerPlaylistTracks(pl);
+    if (topScreen() !== loading) return; // user backed out meanwhile
+    const below = state.navStack[state.navStack.length - 2];
+    if (below && below.key === "playlists") state.navStack[state.navStack.length - 2] = buildPlaylistsScreen();
+    replaceTop(buildStreamPlaylistScreen(pl.id));
+  } catch (e) {
+    if (topScreen() !== loading) return;
+    loading.emptyMessage = e.message || "Couldn't load that link.";
+    loading.title = "Spotify Playlists";
+    render();
+  }
+}
+
+/* ---- Matching songs to YouTube videos ---- */
+async function fetchMatch(track) {
+  const matches = readJSON(MATCHES_KEY, {});
+  const hit = matches[track.spotifyId];
+  if (hit && hit.videoId) return applyMatchArt(track, hit);
+  const params = new URLSearchParams({
+    id: track.spotifyId, title: track.title, artist: track.artist,
+    duration: String(Math.round((track.duration || 0) * 1000)),
+  });
+  const res = await fetch(`api/match?${params}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.videoId) throw new Error(data.error || "Couldn't find this song on YouTube");
+  const entry = { videoId: data.videoId, art: data.art || null, alternates: (data.alternates || []).map((a) => a.videoId), tried: [] };
+  matches[track.spotifyId] = entry;
+  // Keep the local cache bounded.
+  const keys = Object.keys(matches);
+  if (keys.length > 3000) keys.slice(0, keys.length - 3000).forEach((k) => delete matches[k]);
+  writeJSON(MATCHES_KEY, matches);
+  return applyMatchArt(track, entry);
+}
+
+/* Playlists read without the Spotify API only carry the playlist cover; the
+   match brings each song's own cover, which then replaces it. */
+function applyMatchArt(track, entry) {
+  if (entry.art && !track.hasOwnArt) {
+    track.artUrl = entry.art;
+    track.hasOwnArt = true;
+  }
+  return entry;
+}
+
+/* Swaps the current song's video for the next-best match and remembers it. */
+function retryCurrentMatch(reason) {
+  const track = getTrack(state.currentTrackId);
+  if (!track || !track.stream) return false;
+  const matches = readJSON(MATCHES_KEY, {});
+  const m = matches[track.spotifyId];
+  if (!m || !m.alternates || !m.alternates.length) {
+    showToast(reason || "No other versions found");
+    return false;
+  }
+  m.tried = [...(m.tried || []), m.videoId];
+  m.videoId = m.alternates.shift();
+  matches[track.spotifyId] = m;
+  writeJSON(MATCHES_KEY, matches);
+  showToast(reason ? `${reason} Trying another version…` : "Trying another version…");
+  loadAndPlay(track.id);
+  return true;
+}
+
+/* ---- YouTube player ---- */
+function loadYouTubeApi() {
+  if (yt.apiPromise) return yt.apiPromise;
+  yt.apiPromise = new Promise((resolve, reject) => {
+    if (window.YT && window.YT.Player) { resolve(); return; }
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => { if (prev) prev(); resolve(); };
+    const s = document.createElement("script");
+    s.src = "https://www.youtube.com/iframe_api";
+    s.onerror = () => { yt.apiPromise = null; reject(new Error("Couldn't reach YouTube")); };
+    document.head.appendChild(s);
+  });
+  return yt.apiPromise;
+}
+
+function ensureYtPlayer() {
+  if (yt.playerPromise) return yt.playerPromise;
+  yt.playerPromise = loadYouTubeApi().then(() => new Promise((resolve) => {
+    const p = new YT.Player("ytPlayer", {
+      width: "100%",
+      height: "100%",
+      playerVars: {
+        playsinline: 1, controls: 0, disablekb: 1, fs: 0, rel: 0,
+        iv_load_policy: 3, modestbranding: 1, origin: location.origin,
+      },
+      events: {
+        onReady: () => { yt.player = p; p.setVolume(Math.round(audioEl.volume * 100)); resolve(p); },
+        onStateChange: onYtStateChange,
+        onError: onYtError,
+      },
+    });
+  }));
+  yt.playerPromise.catch(() => { yt.playerPromise = null; });
+  return yt.playerPromise;
+}
+
+function onYtStateChange(e) {
+  if (!yt.active) return;
+  yt.state = e.data;
+  if (e.data === 1) { // playing
+    ytHintEl.classList.remove("show");
+    clearTimeout(yt.hintTimer);
+    handlePlay();
+    clearInterval(yt.pollTimer);
+    yt.pollTimer = setInterval(() => { if (yt.active && yt.state === 1) handleTimeUpdate(); }, 400);
+  } else if (e.data === 2) { // paused
+    clearInterval(yt.pollTimer);
+    handlePause();
+  } else if (e.data === 0) { // ended
+    clearInterval(yt.pollTimer);
+    handleEnded();
+  }
+}
+
+function onYtError(e) {
+  if (!yt.active) return;
+  // 100: removed/private, 101/150: owner blocks embedding, 5: HTML5 error.
+  const myLoad = state.loadToken;
+  if (!retryCurrentMatch("This video can't play here.")) {
+    showToast("Couldn't play this song, skipping");
+    setTimeout(() => { if (myLoad === state.loadToken) playNext(); }, 1200);
+  }
+}
+
+function stopYouTube() {
+  if (!yt.active) return;
+  yt.active = false;
+  yt.videoId = null;
+  yt.state = -1;
+  clearInterval(yt.pollTimer);
+  clearTimeout(yt.hintTimer);
+  ytHintEl.classList.remove("show");
+  if (yt.player && yt.player.stopVideo) yt.player.stopVideo();
+  placeYtDock();
+}
+
+async function loadAndPlayStream(trackId, myLoad) {
+  const track = getTrack(trackId);
+  // Hand over from the local <audio> element (its events are ignored while yt.active).
+  yt.active = true;
+  yt.videoId = null;
+  yt.state = -1;
+  clearInterval(yt.pollTimer);
+  audioEl.pause();
+  if (audioEl.getAttribute("src")) { audioEl.removeAttribute("src"); audioEl.load(); }
+  if (yt.player && yt.player.stopVideo) yt.player.stopVideo();
+  state.isPlaying = false;
+  state.artObjectUrl = (track && track.artUrl) || null;
+  renderNowPlayingIfTop();
+  updateMediaSessionMetadata();
+  startYtDockLoop();
+
+  let match;
+  try {
+    [match] = await Promise.all([fetchMatch(track), ensureYtPlayer()]);
+  } catch (e) {
+    if (myLoad !== state.loadToken) return;
+    showToast(e.message || "Couldn't find this song");
+    setTimeout(() => { if (myLoad === state.loadToken && state.queue.length > 1) playNext(); }, 1800);
+    return;
+  }
+  if (myLoad !== state.loadToken) return;
+
+  // The match may have brought this song's own cover art.
+  if (track.artUrl && track.artUrl !== state.artObjectUrl) {
+    state.artObjectUrl = track.artUrl;
+    state.npBuiltTrackId = undefined;
+    renderNowPlayingIfTop();
+    updateMediaSessionMetadata();
+  }
+
+  yt.videoId = match.videoId;
+  yt.player.loadVideoById(match.videoId);
+
+  // Mobile browsers may refuse to start a video the user hasn't touched yet;
+  // if it hasn't started shortly, ask for one tap on the player.
+  clearTimeout(yt.hintTimer);
+  yt.hintTimer = setTimeout(() => {
+    if (myLoad === state.loadToken && yt.active && yt.state !== 1 && yt.state !== 3) {
+      ytHintEl.classList.add("show");
+      showToast("Tap the cover to start playback");
+    }
+  }, 2500);
+}
+
+/* The player has to stay visible, so it sits exactly over the album art of
+   whatever Now Playing view is showing, or as a small tile otherwise. A rAF
+   loop follows the art through Cover Flow animations and rotations. */
+let ytDockRaf = 0;
+let ytDockLast = "";
+
+function ytDockTarget() {
+  if (isCarPlay()) {
+    if (cpView === "nowplaying") return { el: cpArtEl, radius: 10 };
+    return { el: carplayEl.querySelector(".cp-main"), mini: 112, radius: 10 };
+  }
+  const scr = topScreen();
+  if (scr && scr.kind === "nowplaying") {
+    const art = screenContentEl.querySelector(".cf-track.cf-current .cf-art") || screenContentEl.querySelector(".np-art");
+    if (art) return { el: art, radius: 4 };
+  }
+  return { el: document.getElementById("screen"), mini: 64, radius: 4 };
+}
+
+function placeYtDock() {
+  if (!yt.active) {
+    if (ytDockLast !== "off") { ytDockEl.classList.remove("active"); ytDockLast = "off"; }
+    return;
+  }
+  const { el, mini, radius } = ytDockTarget();
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  let left = r.left, top = r.top, w = r.width, h = r.height;
+  if (mini) { w = h = mini; left = r.right - mini - 8; top = r.bottom - mini - 8; }
+  const key = `${Math.round(left)},${Math.round(top)},${Math.round(w)},${Math.round(h)},${radius}`;
+  if (key === ytDockLast) return;
+  ytDockLast = key;
+  ytDockEl.classList.add("active");
+  Object.assign(ytDockEl.style, {
+    left: left + "px", top: top + "px", width: w + "px", height: h + "px", borderRadius: radius + "px",
+  });
+}
+
+function startYtDockLoop() {
+  if (ytDockRaf) return;
+  const tick = () => {
+    placeYtDock();
+    ytDockRaf = yt.active ? requestAnimationFrame(tick) : 0;
+  };
+  ytDockRaf = requestAnimationFrame(tick);
+}
+
+/* Keep the screen on while a streamed song plays: mobile browsers pause
+   YouTube when the phone locks or the browser goes to the background. */
+let wakeLock = null;
+async function updateWakeLock() {
+  const want = yt.active && state.isPlaying && document.visibilityState === "visible";
+  try {
+    if (want && !wakeLock && navigator.wakeLock) {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    } else if (!want && wakeLock) {
+      await wakeLock.release();
+      wakeLock = null;
+    }
+  } catch (e) {}
+}
+document.addEventListener("visibilitychange", updateWakeLock);
 
 /* ---------------------------------------------------------
    10. Media Session
@@ -1700,14 +2145,14 @@ audioEl.addEventListener("ended", () => {
 function setupMediaSession() {
   if (!("mediaSession" in navigator)) return;
   const handlers = {
-    play: () => audioEl.play().catch(() => {}),
-    pause: () => audioEl.pause(),
+    play: () => player.play().catch(() => {}),
+    pause: () => player.pause(),
     previoustrack: () => playPrev(),
     nexttrack: () => playNext(),
-    seekbackward: (d) => { audioEl.currentTime = Math.max(0, audioEl.currentTime - (d.seekOffset || 10)); },
-    seekforward: (d) => { audioEl.currentTime = Math.min(audioEl.duration || 0, audioEl.currentTime + (d.seekOffset || 10)); },
-    seekto: (d) => { if (d.seekTime != null) audioEl.currentTime = d.seekTime; },
-    stop: () => { audioEl.pause(); audioEl.currentTime = 0; },
+    seekbackward: (d) => { player.currentTime = Math.max(0, player.currentTime - (d.seekOffset || 10)); },
+    seekforward: (d) => { player.currentTime = Math.min(player.duration || 0, player.currentTime + (d.seekOffset || 10)); },
+    seekto: (d) => { if (d.seekTime != null) player.currentTime = d.seekTime; },
+    stop: () => { player.pause(); player.currentTime = 0; },
   };
   Object.entries(handlers).forEach(([action, fn]) => {
     try { navigator.mediaSession.setActionHandler(action, fn); } catch (e) {}
@@ -1716,7 +2161,7 @@ function setupMediaSession() {
 
 function updateMediaSessionMetadata() {
   if (!("mediaSession" in navigator)) return;
-  const track = state.library.find((t) => t.id === state.currentTrackId);
+  const track = getTrack(state.currentTrackId);
   if (!track) return;
   const artwork = state.artObjectUrl
     ? [{ src: state.artObjectUrl, sizes: "512x512", type: "image/png" }]
@@ -1840,6 +2285,7 @@ async function clearLibrary() {
   state.npBuiltTrackId = undefined;
   state.npBuiltStyle = null;
   state.cfSlots = null;
+  stopYouTube();
   audioEl.pause();
   audioEl.removeAttribute("src");
   state.currentTrackId = null;
@@ -1886,7 +2332,7 @@ let trackHudTimer = null;
 function flashTrackHud(dir) {
   if (!trackHudOverlayEl) return;
   const isNext = dir === "next";
-  const track = state.library.find((t) => t.id === state.currentTrackId);
+  const track = getTrack(state.currentTrackId);
   const trackName = track ? track.title : (isNext ? "Next Track" : "Previous Track");
   
   trackHudIconEl.textContent = isNext ? "▶▶|" : "|◀◀";
@@ -1932,8 +2378,8 @@ function activateSelected() {
   if (screen.kind === "list" && screen.items.length) {
     const item = screen.items[screen.selected];
     if (!item) return;
-    if (screen.trackIds) setQueueFromScreen(screen, screen.selected);
-    else if (item.action) item.action(screen.selected);
+    if (item.action) item.action(screen.selected);
+    else if (screen.trackIds) setQueueFromScreen(screen, item.trackIndex ?? screen.selected);
   } else if (screen.kind === "rgb-tuner") {
     if (screen.selected === 3) {
       popScreen();
@@ -1967,8 +2413,9 @@ function onPlayPauseButton() {
   playTick();
   if (!state.currentTrackId) {
     const screen = topScreen();
-    if (screen.kind === "list" && screen.trackIds && screen.items.length) {
-      setQueueFromScreen(screen, screen.selected);
+    const item = screen.kind === "list" && screen.items[screen.selected];
+    if (screen.trackIds && item && !item.action) {
+      setQueueFromScreen(screen, item.trackIndex ?? screen.selected);
       return;
     }
     return;
@@ -2026,8 +2473,9 @@ screenContentEl.addEventListener("click", (e) => {
     if (screen.kind !== "list") return;
     const idx = Number(row.dataset.idx);
     screen.selected = idx;
-    if (screen.trackIds) setQueueFromScreen(screen, idx);
-    else if (screen.items[idx] && screen.items[idx].action) screen.items[idx].action(idx);
+    const item = screen.items[idx];
+    if (item && item.action) item.action(idx);
+    else if (screen.trackIds && item) setQueueFromScreen(screen, item.trackIndex ?? idx);
     render();
     return;
   }
@@ -2136,6 +2584,7 @@ function handleWheelTick(direction) {
     if (mode === "volume") {
       audioEl.volume = Math.max(0, Math.min(1, audioEl.volume + direction * 0.05));
       localStorage.setItem("ripod:volume", String(audioEl.volume));
+      if (yt.player && yt.player.setVolume) yt.player.setVolume(Math.round(audioEl.volume * 100));
       flashVolumeOverlay();
     } else {
       const now = Date.now();
@@ -2229,6 +2678,7 @@ async function boot() {
   }
 
   await refreshLibrary();
+  loadSavedPlaylists();
   await loadStickers();
   state.navStack = [buildMainMenu()];
   render();

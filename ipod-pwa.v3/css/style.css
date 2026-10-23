@@ -1689,3 +1689,86 @@ body {
 
 /* Lists in CarPlay sit on a plain dark backdrop */
 .carplay.view-songs .cp-bg { opacity: 0; }
+
+/* ============================================================
+   Streaming (Spotify playlists played through YouTube)
+   ============================================================ */
+
+/* Floats over the current album art; the 16:9 player is wider than the
+   square box and centred, so YouTube's "Topic" uploads (album cover on
+   black bars) fill it exactly like the artwork. */
+.yt-dock {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 25;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #000;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  visibility: hidden;
+  pointer-events: none;
+}
+.yt-dock.active {
+  visibility: visible;
+  pointer-events: auto;
+}
+.yt-frame {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  height: 100%;
+  aspect-ratio: 16 / 9;
+  transform: translateX(-50%);
+}
+.yt-frame iframe,
+.yt-frame > div {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+.yt-hint {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 6px 4px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.yt-hint.show { opacity: 1; }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  top: calc(env(safe-area-inset-top, 0px) + 14px);
+  transform: translate(-50%, -20px);
+  max-width: min(90vw, 420px);
+  padding: 9px 16px;
+  border-radius: 18px;
+  background: rgba(20, 22, 26, 0.94);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  z-index: 40;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.25s ease;
+}
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.cp-retry { display: none; }
+.carplay.is-stream .cp-retry { display: flex; }
