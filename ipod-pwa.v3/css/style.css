@@ -1203,3 +1203,434 @@ body {
   clip: rect(0 0 0 0);
   overflow: hidden;
 }
+/* ============================================================
+   CarPlay Mode — phones held in landscape
+   Swaps the iPod shell for a full-screen, CarPlay-style
+   Now Playing screen (left dock + large art + transport).
+   ============================================================ */
+
+.carplay { display: none; }
+
+@media (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  #app,
+  .stickers-container,
+  .sticker-edit-bar { display: none !important; }
+
+  body { background: #000; }
+
+  .carplay {
+    --cp-text: #ffffff;
+    --cp-sub: rgba(235, 235, 245, 0.6);
+    --cp-faint: rgba(235, 235, 245, 0.3);
+    --cp-accent: #fa2d48;
+    --cp-dock-w: clamp(64px, 11vw, 84px);
+
+    position: fixed;
+    inset: 0;
+    display: flex;
+    background: #000;
+    color: var(--cp-text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    overflow: hidden;
+  }
+}
+
+:where(.carplay) button {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ---------- Dock ---------- */
+
+.cp-dock {
+  flex: 0 0 var(--cp-dock-w);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) 0 calc(env(safe-area-inset-bottom, 0px) + 8px);
+  background: rgba(28, 28, 30, 0.92);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  z-index: 2;
+}
+
+.cp-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.cp-clock {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cp-signal {
+  display: flex;
+  align-items: flex-end;
+  gap: 1.5px;
+  height: 8px;
+}
+.cp-signal i {
+  display: block;
+  width: 3px;
+  border-radius: 1px;
+  background: #fff;
+}
+.cp-signal i:nth-child(1) { height: 3px; }
+.cp-signal i:nth-child(2) { height: 4.5px; }
+.cp-signal i:nth-child(3) { height: 6px; }
+.cp-signal i:nth-child(4) { height: 8px; }
+
+.cp-net {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.cp-dock-apps {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(8px, 3dvh, 14px);
+}
+
+.cp-app {
+  position: relative;
+  width: clamp(42px, 13dvh, 52px);
+  height: clamp(42px, 13dvh, 52px);
+  border-radius: 23%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+.cp-app svg { width: 58%; height: 58%; }
+.cp-app:active { transform: scale(0.92); filter: brightness(0.85); }
+
+.cp-app-music   { background: linear-gradient(180deg, #fd5c74 0%, #fa233b 100%); }
+.cp-app-library { background: linear-gradient(180deg, #5ac8fa 0%, #007aff 100%); }
+.cp-app-shuffle { background: linear-gradient(180deg, #ffb340 0%, #ff8a00 100%); }
+
+/* The "currently open app" dot CarPlay draws beside the dock icon */
+.cp-app.active::before {
+  content: "";
+  position: absolute;
+  left: -9px;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.cp-home {
+  width: clamp(40px, 12dvh, 48px);
+  height: clamp(40px, 12dvh, 48px);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.14);
+}
+.cp-home svg { width: 52%; height: 52%; }
+.cp-home:active { background: rgba(255, 255, 255, 0.26); }
+
+/* ---------- Main area ---------- */
+
+.cp-main {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.cp-view {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: calc(env(safe-area-inset-top, 0px) + 4px) 18px calc(env(safe-area-inset-bottom, 0px) + 10px);
+}
+.cp-view[hidden] { display: none; }
+
+.cp-topbar {
+  flex: 0 0 auto;
+  height: 40px;
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  align-items: center;
+}
+
+.cp-topbar-title {
+  text-align: center;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+
+.cp-back,
+.cp-topbar-btn {
+  width: 44px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: var(--cp-text);
+}
+.cp-back { justify-content: flex-start; }
+.cp-topbar-btn { justify-content: flex-end; }
+.cp-back svg, .cp-topbar-btn svg { width: 24px; height: 24px; }
+.cp-back:active, .cp-topbar-btn:active { opacity: 0.5; }
+
+/* ---------- Now Playing ---------- */
+
+.cp-np-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  gap: clamp(18px, 4vw, 36px);
+  padding: 4px 6px 0;
+}
+
+.cp-art {
+  flex: 0 0 auto;
+  width: min(46%, calc(100dvh - 72px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)));
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
+  background: #2c2c2e center / cover no-repeat;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.cp-art.has-art .cp-art-ph { display: none; }
+.cp-art-ph {
+  font-size: 64px;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.cp-info {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+}
+
+.cp-meta { min-width: 0; }
+
+.cp-title {
+  font-size: clamp(18px, 6dvh, 24px);
+  font-weight: 700;
+  letter-spacing: -0.4px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cp-artist, .cp-album {
+  font-size: clamp(15px, 4.6dvh, 19px);
+  line-height: 1.25;
+  color: var(--cp-sub);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cp-artist { color: var(--cp-accent); }
+
+.cp-bar-track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+  touch-action: none;
+  cursor: pointer;
+}
+/* Generous invisible hit area so the thin bar is easy to scrub with a thumb */
+.cp-bar-track::before {
+  content: "";
+  position: absolute;
+  inset: -12px 0;
+}
+.cp-bar-fill {
+  height: 100%;
+  width: 0;
+  background: #fff;
+  border-radius: 3px 0 0 3px;
+}
+
+.cp-time-row {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cp-sub);
+  font-variant-numeric: tabular-nums;
+}
+
+.cp-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+}
+
+.cp-ctrl {
+  width: clamp(54px, 17dvh, 72px);
+  height: clamp(48px, 15dvh, 64px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  transition: transform 0.1s ease, background-color 0.1s ease;
+}
+.cp-ctrl svg { width: 70%; height: 70%; }
+.cp-ctrl-play svg { width: 62%; height: 62%; }
+.cp-ctrl:active { transform: scale(0.9); background: rgba(255, 255, 255, 0.1); }
+
+.cp-icon-pause { display: none; }
+.carplay.is-playing .cp-icon-play { display: none; }
+.carplay.is-playing .cp-icon-pause { display: block; }
+
+.cp-secondary {
+  display: flex;
+  justify-content: space-around;
+  padding: 0 12%;
+}
+
+.cp-toggle {
+  position: relative;
+  width: 40px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--cp-sub);
+}
+.cp-toggle svg { width: 22px; height: 22px; }
+.cp-toggle.on {
+  color: #fff;
+  background: var(--cp-accent);
+}
+.cp-repeat-one {
+  display: none;
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  font-size: 9px;
+  font-weight: 800;
+}
+.cp-toggle.one .cp-repeat-one { display: block; }
+
+/* No track loaded: dim the transport like CarPlay's "Not Playing" state */
+.carplay.is-empty .cp-controls,
+.carplay.is-empty .cp-progress,
+.carplay.is-empty .cp-secondary { opacity: 0.35; pointer-events: none; }
+
+/* ---------- Songs list ---------- */
+
+.cp-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  margin: 0 -18px;
+  padding: 0 18px;
+}
+
+.cp-row {
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 4px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.cp-row:active { background: rgba(255, 255, 255, 0.1); }
+
+.cp-row-icon {
+  flex: 0 0 22px;
+  text-align: center;
+  font-size: 15px;
+  color: var(--cp-accent);
+}
+
+.cp-row-text { flex: 1; min-width: 0; }
+.cp-row-title, .cp-row-sub { display: block; }
+
+.cp-row-title {
+  font-size: 17px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cp-row-sub {
+  font-size: 14px;
+  color: var(--cp-sub);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cp-row-dur {
+  font-size: 14px;
+  color: var(--cp-sub);
+  font-variant-numeric: tabular-nums;
+}
+.cp-row.current .cp-row-title { color: var(--cp-accent); }
+
+.cp-list-empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--cp-sub);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+/* Animated "now playing" bars in the list header */
+.cp-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 16px;
+}
+.cp-eq i {
+  display: block;
+  width: 3px;
+  height: 40%;
+  border-radius: 1px;
+  background: var(--cp-accent);
+}
+.carplay.is-playing .cp-eq i { animation: cpEq 0.9s ease-in-out infinite alternate; }
+.carplay.is-playing .cp-eq i:nth-child(2) { animation-delay: -0.3s; }
+.carplay.is-playing .cp-eq i:nth-child(3) { animation-delay: -0.6s; }
+
+@keyframes cpEq {
+  0% { height: 25%; }
+  100% { height: 100%; }
+}
