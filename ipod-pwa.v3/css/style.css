@@ -1689,3 +1689,31 @@ body {
 
 /* Lists in CarPlay sit on a plain dark backdrop */
 .carplay.view-songs .cp-bg { opacity: 0; }
+
+/* ============================================================
+   Toast (short status messages, e.g. from Spotify)
+   ============================================================ */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  top: calc(env(safe-area-inset-top, 0px) + 14px);
+  transform: translate(-50%, -20px);
+  max-width: min(90vw, 420px);
+  padding: 9px 16px;
+  border-radius: 18px;
+  background: rgba(20, 22, 26, 0.94);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  z-index: 40;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.25s ease;
+}
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}

@@ -1,8 +1,8 @@
 /* ============================================================
-   Retro iPod — Service Worker v6
+   Retro iPod — Service Worker v7
    ============================================================ */
 
-const CACHE_NAME = "retro-ipod-shell-v6";
+const CACHE_NAME = "retro-ipod-shell-v7";
 
 const ASSETS = [
   "./",
@@ -36,7 +36,9 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
-  if (new URL(req.url).origin !== self.location.origin) return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.includes("/api/")) return; // live data: never serve from cache
 
   event.respondWith(
     caches.match(req).then((cached) => {
