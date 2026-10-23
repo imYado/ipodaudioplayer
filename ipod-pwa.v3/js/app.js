@@ -1400,10 +1400,12 @@ const cpTimeCurEl = document.getElementById("cpTimeCur");
 const cpTimeRemainingEl = document.getElementById("cpTimeRemaining");
 const cpShuffleBtnEl = document.getElementById("cpShuffleBtn");
 const cpRepeatBtnEl = document.getElementById("cpRepeatBtn");
+const cpBgLayerEls = carplayEl.querySelectorAll(".cp-bg-layer");
 
 let cpView = "nowplaying";
 let cpBuiltTrackId; // undefined forces the first paint
 let cpBuiltArtUrl;
+let cpBgFront = 0;
 
 function isCarPlay() { return carplayMQ.matches; }
 
@@ -1420,9 +1422,11 @@ function setCarPlayView(view) {
   cpView = view;
   cpNowPlayingEl.hidden = view !== "nowplaying";
   cpSongsEl.hidden = view !== "songs";
+  carplayEl.classList.toggle("view-songs", view === "songs");
   carplayEl.querySelector(".cp-app-music").classList.toggle("active", view === "nowplaying");
   carplayEl.querySelector(".cp-app-library").classList.toggle("active", view === "songs");
   if (view === "songs") renderCarPlayList();
+  else setCarPlayTitle(cpTitleEl.textContent);
 }
 
 function renderCarPlayList() {
@@ -1442,6 +1446,38 @@ function renderCarPlayList() {
     </button>`).join("");
 }
 
+/* Cross-fades the blurred backdrop to the new cover (or to black when the
+   track has no artwork). */
+function setCarPlayBackdrop(url) {
+  const next = cpBgLayerEls[1 - cpBgFront];
+  const cur = cpBgLayerEls[cpBgFront];
+  if (url) {
+    next.style.backgroundImage = `url('${url}')`;
+    next.classList.add("show");
+    cur.classList.remove("show");
+    cpBgFront = 1 - cpBgFront;
+  } else {
+    cur.classList.remove("show");
+    next.classList.remove("show");
+  }
+}
+
+function setCarPlayTitle(text) {
+  cpTitleEl.classList.remove("scrolling");
+  cpTitleEl.innerHTML = `<span class="cp-marquee-inner">${esc(text)}</span>`;
+  requestAnimationFrame(() => {
+    const inner = cpTitleEl.firstElementChild;
+    if (!inner) return;
+    if (!cpTitleEl.clientWidth) return; // hidden (Songs view); re-measured when shown
+    const overflow = inner.scrollWidth - cpTitleEl.clientWidth;
+    if (overflow > 2) {
+      cpTitleEl.style.setProperty("--cp-marquee-dist", `-${overflow + 12}px`);
+      cpTitleEl.style.setProperty("--cp-marquee-time", `${Math.max(7, overflow / 18)}s`);
+      cpTitleEl.classList.add("scrolling");
+    }
+  });
+}
+
 function updateCarPlay() {
   if (!isCarPlay()) return;
   const track = state.library.find((t) => t.id === state.currentTrackId);
@@ -1452,7 +1488,8 @@ function updateCarPlay() {
   if (cpBuiltTrackId !== state.currentTrackId || cpBuiltArtUrl !== state.artObjectUrl) {
     cpBuiltTrackId = state.currentTrackId;
     cpBuiltArtUrl = state.artObjectUrl;
-    cpTitleEl.textContent = track ? track.title : "Not Playing";
+    setCarPlayTitle(track ? track.title : "Not Playing");
+    setCarPlayBackdrop(state.artObjectUrl);
     cpArtistEl.textContent = track ? (track.artist || "Unknown Artist") : "";
     cpAlbumEl.textContent = track ? (track.album || "Unknown Album") : "";
     cpArtEl.style.backgroundImage = state.artObjectUrl ? `url('${state.artObjectUrl}')` : "";
