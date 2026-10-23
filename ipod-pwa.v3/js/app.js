@@ -258,7 +258,8 @@ const state = {
   npBuildToken: 0,
   cfSlots: null,
   shuffleOrigQueue: null,
-  streamTracks: new Map(), // id -> track meta for songs from Spotify playlists
+  remoteTracks: new Map(), // id -> track meta for Spotify songs
+  remoteContext: null,     // what the current Spotify queue was started from
   loadToken: 0,
 };
 
@@ -886,7 +887,7 @@ function buildMainMenu() {
       { label: "Songs", sub: String(state.library.length), chevron: true, action: () => pushScreen(buildTrackListScreen("Songs", sortedSongs())) },
       { label: "Artists", chevron: true, action: () => pushScreen(buildArtistsScreen()) },
       { label: "Albums", chevron: true, action: () => pushScreen(buildAlbumsScreen()) },
-      { label: "Spotify Playlists", chevron: true, action: () => pushScreen(buildPlaylistsScreen()) },
+      ...(spotifyUnlocked() ? [{ label: "Spotify", chevron: true, action: () => pushScreen(buildSpotifyScreen()) }] : []),
       { label: "Shuffle Songs", chevron: false, action: () => shuffleAll() },
       { label: "Add Music...", chevron: false, action: () => triggerAddMusic() },
       { label: "Settings", chevron: true, action: () => pushScreen(buildSettingsScreen()) },
@@ -1148,11 +1149,10 @@ async function getArtForTrack(id) {
   if (!id) return null;
   if (state.npCoverCache.has(id)) return state.npCoverCache.get(id);
   const entry = { url: null, color: null };
-  if (isStreamId(id)) {
+  if (isRemoteId(id)) {
     const t = getTrack(id);
     entry.url = (t && t.artUrl) || null;
     if (entry.url) entry.color = await getAverageColorFromUrl(entry.url).catch(() => null);
-    // Not cached: the art URL can arrive later (filled in by the YouTube match).
     return entry;
   }
   const rec = await idbGet("art", id);
@@ -1441,7 +1441,7 @@ function setCarPlayView(view) {
 }
 
 function renderCarPlayList() {
-  const streaming = isStreamId(state.currentTrackId) && state.queue.length;
+  const streaming = isRemoteId(state.currentTrackId) && state.queue.length;
   const songs = streaming ? state.queue.map(getTrack).filter(Boolean) : sortedSongs();
   cpSongsEl.querySelector(".cp-topbar-title").textContent = streaming ? (state.queueName || "Playlist") : "Songs";
   if (!songs.length) {
@@ -1497,7 +1497,6 @@ function updateCarPlay() {
 
   carplayEl.classList.toggle("is-playing", state.isPlaying);
   carplayEl.classList.toggle("is-empty", !track);
-  carplayEl.classList.toggle("is-stream", !!(track && track.stream));
 
   if (cpBuiltTrackId !== state.currentTrackId || cpBuiltArtUrl !== state.artObjectUrl) {
     cpBuiltTrackId = state.currentTrackId;
@@ -1517,15 +1516,20 @@ function updateCarPlay() {
   cpTimeCurEl.textContent = cpTime(cur);
   cpTimeRemainingEl.textContent = "-" + cpTime(Math.max(0, dur - cur));
 
-  const repeat = settings.repeat;
+  const repeat = sp.active ? ({ context: "all", track: "one" }[sp.repeat] || "off") : settings.repeat;
   cpRepeatBtnEl.classList.toggle("on", repeat !== "off");
   cpRepeatBtnEl.classList.toggle("one", repeat === "one");
-  cpShuffleBtnEl.classList.toggle("on", !!state.shuffleOrigQueue);
+  cpShuffleBtnEl.classList.toggle("on", sp.active ? sp.shuffle : !!state.shuffleOrigQueue);
 }
 
 /* Shuffle toggle: keeps the current song playing and shuffles the rest of
    the queue behind it; toggling off restores the original order. */
 function toggleCarPlayShuffle() {
+  if (sp.active) {
+    sp.shuffle = !sp.shuffle;
+    spCommand("PUT", `/me/player/shuffle?state=${sp.shuffle}`);
+    return;
+  }
   if (!state.queue.length) return;
   if (state.shuffleOrigQueue) {
     state.queue = state.shuffleOrigQueue;
@@ -1540,6 +1544,12 @@ function toggleCarPlayShuffle() {
 }
 
 function cycleCarPlayRepeat() {
+  if (sp.active) {
+    const spOrder = ["off", "context", "track"];
+    sp.repeat = spOrder[(spOrder.indexOf(sp.repeat) + 1) % spOrder.length];
+    spCommand("PUT", `/me/player/repeat?state=${sp.repeat}`);
+    return;
+  }
   const order = ["off", "all", "one"];
   settings.repeat = order[(order.indexOf(settings.repeat) + 1) % order.length];
 }
@@ -1568,7 +1578,6 @@ carplayEl.addEventListener("click", (e) => {
       playQueueIndex(Number(btn.dataset.idx));
       setCarPlayView("nowplaying");
       break;
-    case "retry": retryCurrentMatch(); break;
     case "playpause":
       if (!state.currentTrackId) { setCarPlayView("songs"); break; }
       togglePlayPause();
@@ -1610,8 +1619,8 @@ async function loadAndPlay(trackId) {
   if (state.audioObjectUrl) { URL.revokeObjectURL(state.audioObjectUrl); state.audioObjectUrl = null; }
   if (state.artObjectUrl) { URL.revokeObjectURL(state.artObjectUrl); state.artObjectUrl = null; }
 
-  if (isStreamId(trackId)) { await loadAndPlayStream(trackId, myLoad); return; }
-  stopYouTube();
+  if (isRemoteId(trackId)) { await loadAndPlayRemote(trackId, myLoad); return; }
+  leaveRemote(true);
 
   const [audioRec, artRec] = await Promise.all([
     idbGet("audio", trackId),
@@ -1644,6 +1653,7 @@ function playQueueIndex(i) {
 }
 
 function playNext() {
+  if (sp.active) { spCommand("POST", "/me/player/next"); return; } // Spotify keeps its own queue
   if (state.queueIndex + 1 < state.queue.length) {
     playQueueIndex(state.queueIndex + 1);
   } else if (settings.repeat === "all" && state.queue.length > 0) {
@@ -1652,6 +1662,7 @@ function playNext() {
 }
 
 function playPrev(forceSkip = false) {
+  if (sp.active) { spCommand("POST", "/me/player/previous"); return; }
   if (!forceSkip && player.currentTime > 3) {
     player.currentTime = 0;
     return;
@@ -1666,6 +1677,7 @@ function playPrev(forceSkip = false) {
 function setQueueFromScreen(screen, idx) {
   state.shuffleOrigQueue = null;
   state.queueName = screen.title;
+  state.remoteContext = screen.remoteContext || null;
   state.queue = screen.trackIds.slice();
   playQueueIndex(idx);
 }
@@ -1683,14 +1695,13 @@ function togglePlayPause() {
   else player.pause();
 }
 
-/* Playback events are shared by the local <audio> element and the YouTube
-   player (which calls these from its state-change callback). */
+/* Playback events are shared by the local <audio> element and Spotify
+   remote mode (which calls these when its polled state changes). */
 function handlePlay() {
   state.isPlaying = true;
   if (statusPlayIconEl) statusPlayIconEl.textContent = "▶";
   updateMediaSessionPlaybackState();
   renderNowPlayingIfTop();
-  updateWakeLock();
 }
 
 function handlePause() {
@@ -1698,7 +1709,6 @@ function handlePause() {
   if (statusPlayIconEl) statusPlayIconEl.textContent = "❚❚";
   updateMediaSessionPlaybackState();
   renderNowPlayingIfTop();
-  updateWakeLock();
 }
 
 function handleTimeUpdate() {
@@ -1723,76 +1733,61 @@ function handleEnded() {
   state.isPlaying = false;
   if (statusPlayIconEl) statusPlayIconEl.textContent = "❚❚";
   renderNowPlayingIfTop();
-  updateWakeLock();
 }
 
-// While a YouTube song is active the <audio> element is idle; ignore its
+// While Spotify is the source the <audio> element is idle; ignore its
 // events (e.g. the pause fired when we stop it) so they can't clobber state.
-audioEl.addEventListener("play", () => { if (!yt.active) handlePlay(); });
-audioEl.addEventListener("pause", () => { if (!yt.active) handlePause(); });
-audioEl.addEventListener("timeupdate", () => { if (!yt.active) handleTimeUpdate(); });
-audioEl.addEventListener("ended", () => { if (!yt.active) handleEnded(); });
+audioEl.addEventListener("play", () => { if (!sp.active) handlePlay(); });
+audioEl.addEventListener("pause", () => { if (!sp.active) handlePause(); });
+audioEl.addEventListener("timeupdate", () => { if (!sp.active) handleTimeUpdate(); });
+audioEl.addEventListener("ended", () => { if (!sp.active) handleEnded(); });
 
 /* ---------------------------------------------------------
-   9b. Streaming — Spotify playlists played through YouTube
-   A pasted Spotify link is read by /api/playlist (track list only);
-   each song is then matched to a YouTube video by /api/match and played
-   in YouTube's embedded player, which floats over the album art.
+   9b. Spotify remote mode (private)
+   Hidden unless this device was unlocked once with the secret link
+   (?spotify=CODE, checked by /api/spotify-config against an env var).
+   Signs in with Spotify (PKCE, no client secret) and works as a remote
+   for the Spotify app: browse playlists / Liked Songs, and Now Playing +
+   CarPlay show and control whatever Spotify is playing.
 --------------------------------------------------------- */
-const STREAM_PREFIX = "yt:";
-const PLAYLISTS_KEY = "ripod:playlists";
-const MATCHES_KEY = "ripod:ytMatches";
+const SP_PREFIX = "sp:";
+const SP_UNLOCK_KEY = "ripod:spotifyUnlock";
+const SP_AUTH_KEY = "ripod:spotifyAuth";
+const SP_VERIFIER_KEY = "ripod:spotifyVerifier";
+const SP_SCOPES = [
+  "user-read-playback-state", "user-modify-playback-state", "user-read-currently-playing",
+  "playlist-read-private", "playlist-read-collaborative", "user-library-read",
+].join(" ");
+const SP_API = "https://api.spotify.com/v1";
 
-const ytDockEl = document.getElementById("ytDock");
-const ytHintEl = document.getElementById("ytHint");
 const toastEl = document.getElementById("toast");
 
-const yt = {
-  apiPromise: null,
-  playerPromise: null,
-  player: null,
-  active: false,   // current track is a YouTube one
-  videoId: null,
-  state: -1,       // YT.PlayerState
+const sp = {
+  clientId: null,       // set once this device is unlocked
+  auth: null,           // { access, refresh, expires }
+  active: false,        // Spotify is the current playback source
+  trackId: null,        // Spotify track id currently playing
+  durationMs: 0,
+  isPlaying: false,
+  progressMs: 0,
+  fetchedAt: 0,
+  shuffle: false,
+  repeat: "off",        // off | context | track
+  volume: null,         // 0-100, null if the device doesn't report it
   pollTimer: null,
-  hintTimer: null,
+  tickTimer: null,
+  volumeTimer: null,
 };
 
-function isStreamId(id) { return typeof id === "string" && id.startsWith(STREAM_PREFIX); }
-
-function getTrack(id) {
-  if (!id) return null;
-  return state.streamTracks.get(id) || state.library.find((t) => t.id === id) || null;
+function readJSON(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch (e) { return fallback; }
 }
-
-/* One interface over whichever engine is playing the current track. */
-const player = {
-  get currentTime() {
-    if (yt.active) return (yt.player && yt.player.getCurrentTime && yt.player.getCurrentTime()) || 0;
-    return audioEl.currentTime;
-  },
-  set currentTime(v) {
-    if (yt.active) { if (yt.player && yt.player.seekTo) yt.player.seekTo(v, true); }
-    else audioEl.currentTime = v;
-  },
-  get duration() {
-    if (yt.active) return (yt.player && yt.player.getDuration && yt.player.getDuration()) || 0;
-    return audioEl.duration;
-  },
-  get paused() {
-    if (yt.active) return yt.state !== 1 && yt.state !== 3;
-    return audioEl.paused;
-  },
-  get hasSource() { return yt.active ? !!yt.videoId : !!audioEl.src; },
-  play() {
-    if (yt.active) { if (yt.player && yt.player.playVideo) yt.player.playVideo(); return Promise.resolve(); }
-    return audioEl.play();
-  },
-  pause() {
-    if (yt.active) { if (yt.player && yt.player.pauseVideo) yt.player.pauseVideo(); }
-    else audioEl.pause();
-  },
-};
+function writeJSON(key, value) {
+  try {
+    if (value == null) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {}
+}
 
 let toastTimer = null;
 function showToast(msg, ms = 2600) {
@@ -1802,342 +1797,465 @@ function showToast(msg, ms = 2600) {
   toastTimer = setTimeout(() => toastEl.classList.remove("show"), ms);
 }
 
-/* ---- Saved playlists ---- */
-function readJSON(key, fallback) {
-  try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch (e) { return fallback; }
-}
-function writeJSON(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+function isRemoteId(id) { return typeof id === "string" && id.startsWith(SP_PREFIX); }
+
+function getTrack(id) {
+  if (!id) return null;
+  return state.remoteTracks.get(id) || state.library.find((t) => t.id === id) || null;
 }
 
-function savedPlaylists() { return readJSON(PLAYLISTS_KEY, []); }
+function registerRemoteTrack(t) {
+  if (!t || !t.id) return null;
+  const images = (t.album && t.album.images) || [];
+  const track = {
+    id: SP_PREFIX + t.id,
+    spotifyId: t.id,
+    uri: t.uri || `spotify:track:${t.id}`,
+    title: t.name,
+    artist: (t.artists || []).map((a) => a.name).join(", ") || "Unknown Artist",
+    album: (t.album && t.album.name) || "",
+    duration: (t.duration_ms || 0) / 1000,
+    artUrl: images.length ? images[0].url : null,
+    remote: true,
+  };
+  state.remoteTracks.set(track.id, track);
+  return track;
+}
 
-function registerPlaylistTracks(pl) {
-  const matches = readJSON(MATCHES_KEY, {});
-  pl.tracks.forEach((t) => {
-    const id = STREAM_PREFIX + t.id;
-    const m = matches[t.id];
-    state.streamTracks.set(id, {
-      id,
-      spotifyId: t.id,
-      title: t.title,
-      artist: t.artist || "Unknown Artist",
-      album: t.album || pl.name || "",
-      duration: (t.durationMs || 0) / 1000,
-      artUrl: t.image || (m && m.art) || pl.image || null,
-      hasOwnArt: !!(t.image || (m && m.art)),
-      stream: true,
-    });
+/* One interface over whichever source is playing: the local <audio>
+   element or the user's Spotify app. */
+const player = {
+  get currentTime() {
+    if (!sp.active) return audioEl.currentTime;
+    const elapsed = sp.isPlaying ? Date.now() - sp.fetchedAt : 0;
+    return Math.min(sp.durationMs, sp.progressMs + elapsed) / 1000;
+  },
+  set currentTime(v) {
+    if (!sp.active) { audioEl.currentTime = v; return; }
+    sp.progressMs = Math.max(0, Math.round(v * 1000));
+    sp.fetchedAt = Date.now();
+    spCommand("PUT", `/me/player/seek?position_ms=${sp.progressMs}`);
+  },
+  get duration() { return sp.active ? sp.durationMs / 1000 : audioEl.duration; },
+  get paused() { return sp.active ? !sp.isPlaying : audioEl.paused; },
+  get hasSource() { return sp.active ? !!sp.trackId : !!audioEl.src; },
+  play() {
+    if (!sp.active) return audioEl.play();
+    setRemotePlaying(true);
+    return spCommand("PUT", "/me/player/play");
+  },
+  pause() {
+    if (!sp.active) { audioEl.pause(); return; }
+    setRemotePlaying(false);
+    spCommand("PUT", "/me/player/pause");
+  },
+};
+
+/* ---- Unlock & sign-in ---- */
+function spotifyUnlocked() { return !!sp.clientId; }
+function spotifySignedIn() { return !!(sp.auth && sp.auth.refresh); }
+
+function base64url(bytes) {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function spRedirectUri() { return location.origin + "/"; }
+
+async function spotifyLogin() {
+  const verifier = base64url(crypto.getRandomValues(new Uint8Array(48)));
+  const challenge = base64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+  try { localStorage.setItem(SP_VERIFIER_KEY, verifier); } catch (e) {}
+  const params = new URLSearchParams({
+    client_id: sp.clientId, response_type: "code", redirect_uri: spRedirectUri(),
+    code_challenge_method: "S256", code_challenge: challenge, scope: SP_SCOPES,
   });
+  location.href = `https://accounts.spotify.com/authorize?${params}`;
 }
 
-function loadSavedPlaylists() {
-  savedPlaylists().forEach(registerPlaylistTracks);
+function spotifyLogout() {
+  sp.auth = null;
+  writeJSON(SP_AUTH_KEY, null);
+  if (sp.active) leaveRemote(false);
+  stopSpotifyPolling();
+  showToast("Signed out of Spotify");
 }
 
-function buildPlaylistsScreen() {
-  const lists = savedPlaylists();
-  const items = [];
-  if (isStreamId(state.currentTrackId)) {
-    items.push({ label: "Wrong Song? Try Another", chevron: false, action: () => retryCurrentMatch() });
+async function spTokenRequest(body) {
+  const res = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: sp.clientId, ...body }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error_description || data.error || "Spotify sign-in failed");
+  sp.auth = {
+    access: data.access_token,
+    refresh: data.refresh_token || (sp.auth && sp.auth.refresh),
+    expires: Date.now() + (data.expires_in - 60) * 1000,
+  };
+  writeJSON(SP_AUTH_KEY, sp.auth);
+}
+
+let spRefreshing = null;
+async function spAccessToken() {
+  if (!sp.auth) throw new Error("Not signed in to Spotify");
+  if (Date.now() < sp.auth.expires) return sp.auth.access;
+  if (!spRefreshing) {
+    spRefreshing = spTokenRequest({ grant_type: "refresh_token", refresh_token: sp.auth.refresh })
+      .finally(() => { spRefreshing = null; });
   }
-  lists.forEach((pl) => {
-    items.push({
-      label: pl.name, sub: String(pl.tracks.length), chevron: true,
-      action: () => pushScreen(buildStreamPlaylistScreen(pl.id)),
-    });
+  try {
+    await spRefreshing;
+  } catch (e) {
+    sp.auth = null;
+    writeJSON(SP_AUTH_KEY, null);
+    throw new Error("Spotify sign-in expired. Sign in again.");
+  }
+  return sp.auth.access;
+}
+
+async function spApi(method, path, body) {
+  const doFetch = async () => fetch(path.startsWith("http") ? path : SP_API + path, {
+    method,
+    headers: { authorization: `Bearer ${await spAccessToken()}`, ...(body ? { "content-type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
   });
-  items.push({ label: "Add Playlist Link...", chevron: false, action: () => addPlaylistFromPrompt() });
-  return { key: "playlists", kind: "list", title: "Spotify Playlists", selected: 0, scrollOffset: 0, items };
+  let res = await doFetch();
+  if (res.status === 401 && sp.auth) { sp.auth.expires = 0; res = await doFetch(); }
+  if (res.status === 204 || res.status === 202) return null;
+  const text = await res.text();
+  const data = text ? (() => { try { return JSON.parse(text); } catch (e) { return null; } })() : null;
+  if (!res.ok) {
+    const reason = data && data.error && (data.error.reason || data.error.message);
+    const err = new Error(
+      reason === "PREMIUM_REQUIRED" ? "Spotify Premium is needed to control playback" :
+      reason === "NO_ACTIVE_DEVICE" ? "Open Spotify on your phone or computer first" :
+      res.status === 403 ? "Spotify refused this (is your account added to the app?)" :
+      res.status === 429 ? "Spotify is rate-limiting, try again in a moment" :
+      (reason || `Spotify error ${res.status}`));
+    err.reason = reason;
+    err.status = res.status;
+    throw err;
+  }
+  return data;
 }
 
-function buildStreamPlaylistScreen(playlistId) {
-  const pl = savedPlaylists().find((p) => p.id === playlistId);
-  if (!pl) return buildPlaylistsScreen();
-  const trackIds = pl.tracks.map((t) => STREAM_PREFIX + t.id);
-  const items = [
-    {
-      label: "Shuffle", chevron: false, action: () => {
-        state.shuffleOrigQueue = null;
-        state.queue = shuffleArray(trackIds);
-        state.queueName = pl.name;
-        playQueueIndex(0);
-      },
-    },
-    ...pl.tracks.map((t, i) => ({ label: t.title, sub: formatDuration((t.durationMs || 0) / 1000), chevron: false, trackIndex: i })),
-    { label: "Remove Playlist", chevron: false, action: () => removePlaylist(pl.id) },
-  ];
-  return { key: "stream-" + pl.id, kind: "list", title: pl.name, selected: 0, scrollOffset: 0, trackIds, items };
+/* Fire-and-forget playback command; refreshes state shortly after. */
+function spCommand(method, path, body) {
+  return spApi(method, path, body)
+    .catch((e) => { showToast(e.message); })
+    .finally(() => setTimeout(pollSpotify, 450));
 }
 
-function removePlaylist(id) {
-  writeJSON(PLAYLISTS_KEY, savedPlaylists().filter((p) => p.id !== id));
-  popScreen();
-  replaceTop(buildPlaylistsScreen());
+/* Runs at boot: picks up ?spotify=CODE (unlock) and ?code= (sign-in
+   redirect), then restores the unlock + session for this device. */
+async function initSpotify() {
+  const url = new URL(location.href);
+  const unlockCode = url.searchParams.get("spotify");
+  const authCode = url.searchParams.get("code");
+  const authError = url.searchParams.get("error");
+  if (unlockCode || authCode || authError) {
+    ["spotify", "code", "state", "error"].forEach((k) => url.searchParams.delete(k));
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
+  }
+
+  let unlock = readJSON(SP_UNLOCK_KEY, null);
+  if (unlockCode) unlock = { code: unlockCode, clientId: null };
+  if (!unlock) return;
+
+  sp.clientId = unlock.clientId;
+  try {
+    const res = await fetch(`api/spotify-config?code=${encodeURIComponent(unlock.code)}`);
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.clientId) {
+      sp.clientId = data.clientId;
+      writeJSON(SP_UNLOCK_KEY, { code: unlock.code, clientId: data.clientId });
+      if (unlockCode) showToast("Spotify unlocked on this device");
+    } else if (res.status === 403 || res.status === 503) {
+      sp.clientId = null;
+      writeJSON(SP_UNLOCK_KEY, null);
+      if (unlockCode) showToast(data.error || "Wrong unlock code");
+      return;
+    }
+  } catch (e) {
+    // Offline: keep the cached client id so the menu still shows.
+  }
+  if (!sp.clientId) return;
+
+  sp.auth = readJSON(SP_AUTH_KEY, null);
+  if (authError) showToast("Spotify sign-in was cancelled");
+  if (authCode) {
+    let verifier = null;
+    try { verifier = localStorage.getItem(SP_VERIFIER_KEY); localStorage.removeItem(SP_VERIFIER_KEY); } catch (e) {}
+    try {
+      await spTokenRequest({ grant_type: "authorization_code", code: authCode, redirect_uri: spRedirectUri(), code_verifier: verifier || "" });
+      showToast("Signed in to Spotify");
+    } catch (e) {
+      showToast(e.message);
+    }
+  }
+  if (spotifySignedIn()) startSpotifyPolling();
 }
 
-async function addPlaylistFromPrompt() {
-  const link = window.prompt("Paste a Spotify playlist or album link");
-  if (!link) return;
-  const loading = { key: "loading-playlist", kind: "list", title: "Loading…", selected: 0, scrollOffset: 0, items: [], emptyMessage: "Loading playlist…" };
+/* ---- Following Spotify's playback ---- */
+function setRemotePlaying(playing) {
+  if (playing === sp.isPlaying) return;
+  sp.progressMs = player.currentTime * 1000;
+  sp.fetchedAt = Date.now();
+  sp.isPlaying = playing;
+  if (!sp.active) return;
+  if (playing) { handlePlay(); startRemoteTick(); }
+  else handlePause();
+}
+
+function startRemoteTick() {
+  clearInterval(sp.tickTimer);
+  sp.tickTimer = setInterval(() => {
+    if (sp.active && sp.isPlaying) handleTimeUpdate();
+    else clearInterval(sp.tickTimer);
+  }, 500);
+}
+
+/* Makes Spotify the current source (stopping local playback). */
+function adoptRemote() {
+  if (!sp.trackId) return;
+  if (!sp.active) {
+    audioEl.pause();
+    sp.active = true;
+  }
+  showRemoteTrack();
+  if (sp.isPlaying) { handlePlay(); startRemoteTick(); } else handlePause();
+}
+
+/* Back to local playback; optionally pause Spotify so both don't play. */
+function leaveRemote(pauseSpotify) {
+  if (!sp.active) return;
+  if (pauseSpotify && sp.isPlaying) spApi("PUT", "/me/player/pause").catch(() => {});
+  sp.active = false;
+  clearInterval(sp.tickTimer);
+}
+
+function showRemoteTrack() {
+  const id = SP_PREFIX + sp.trackId;
+  const track = getTrack(id);
+  state.currentTrackId = id;
+  const qi = state.queue.indexOf(id);
+  if (qi !== -1) state.queueIndex = qi;
+  state.artObjectUrl = (track && track.artUrl) || null;
+  renderNowPlayingIfTop();
+  updateMediaSessionMetadata();
+}
+
+async function pollSpotify() {
+  if (!spotifySignedIn()) return;
+  let data;
+  try {
+    data = await spApi("GET", "/me/player?additional_types=track");
+  } catch (e) {
+    return;
+  }
+  const item = data && data.item && data.item.type !== "episode" ? data.item : null;
+  sp.isPlaying = !!(data && data.is_playing && item);
+  sp.progressMs = (data && data.progress_ms) || 0;
+  sp.fetchedAt = Date.now();
+  sp.shuffle = !!(data && data.shuffle_state);
+  sp.repeat = (data && data.repeat_state) || "off";
+  sp.volume = data && data.device && data.device.volume_percent != null ? data.device.volume_percent : null;
+
+  const newId = item ? item.id : null;
+  const changed = newId !== sp.trackId;
+  if (item) { registerRemoteTrack(item); sp.durationMs = item.duration_ms || 0; }
+  sp.trackId = newId;
+
+  if (sp.active) {
+    if (changed && newId) showRemoteTrack();
+    if (sp.isPlaying) { handlePlay(); startRemoteTick(); } else handlePause();
+  } else if (sp.isPlaying && !state.isPlaying) {
+    // Spotify is playing and the iPod isn't: follow it.
+    adoptRemote();
+  }
+}
+
+function startSpotifyPolling() {
+  stopSpotifyPolling();
+  const loop = () => {
+    if (document.visibilityState === "visible") pollSpotify();
+    sp.pollTimer = setTimeout(loop, sp.active ? 2500 : 8000);
+  };
+  loop();
+}
+function stopSpotifyPolling() { clearTimeout(sp.pollTimer); sp.pollTimer = null; }
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && spotifySignedIn()) pollSpotify();
+});
+
+/* Plays a Spotify track from the current queue on the user's device. */
+async function loadAndPlayRemote(trackId, myLoad) {
+  const track = getTrack(trackId);
+  audioEl.pause();
+  sp.active = true;
+  sp.trackId = track.spotifyId;
+  sp.durationMs = track.duration * 1000;
+  sp.progressMs = 0;
+  sp.fetchedAt = Date.now();
+  showRemoteTrack();
+  setRemotePlaying(true);
+
+  const ctx = state.remoteContext || {};
+  let body;
+  if (ctx.contextUri) {
+    body = { context_uri: ctx.contextUri, offset: { uri: track.uri } };
+  } else {
+    const start = Math.max(0, state.queue.indexOf(trackId));
+    const uris = state.queue.slice(start, start + 100).map((id) => getTrack(id)).filter(Boolean).map((t) => t.uri);
+    body = { uris: uris.length ? uris : [track.uri] };
+  }
+  try {
+    await spApi("PUT", "/me/player/play", body);
+  } catch (e) {
+    if (myLoad !== state.loadToken) return;
+    if (e.reason === "NO_ACTIVE_DEVICE") {
+      const devices = await spApi("GET", "/me/player/devices").catch(() => null);
+      const device = devices && devices.devices && devices.devices.find((d) => !d.is_restricted);
+      if (device) {
+        try {
+          await spApi("PUT", `/me/player/play?device_id=${encodeURIComponent(device.id)}`, body);
+          showToast(`Playing on ${device.name}`);
+          setTimeout(pollSpotify, 600);
+          return;
+        } catch (e2) { e = e2; }
+      }
+    }
+    setRemotePlaying(false);
+    showToast(e.message);
+    return;
+  }
+  setTimeout(pollSpotify, 600);
+}
+
+function setRemoteVolume(percent) {
+  sp.volume = Math.max(0, Math.min(100, Math.round(percent)));
+  clearTimeout(sp.volumeTimer);
+  sp.volumeTimer = setTimeout(() => {
+    spApi("PUT", `/me/player/volume?volume_percent=${sp.volume}`).catch((e) => {
+      showToast(e.status === 403 ? "This device doesn't allow volume control" : e.message);
+    });
+  }, 250);
+}
+
+/* ---- Spotify menus ---- */
+function loadingScreen(title) {
+  return { key: "loading-" + title, kind: "list", title, selected: 0, scrollOffset: 0, items: [], emptyMessage: "Loading…" };
+}
+
+/* Pushes a loading screen, then swaps in the built screen (or an error). */
+async function pushLoaded(title, build) {
+  const loading = loadingScreen(title);
   pushScreen(loading);
   try {
-    const res = await fetch(`api/playlist?url=${encodeURIComponent(link.trim())}`);
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || "Couldn't load that link.");
-    const pl = { id: `${data.type}:${data.id}`, name: data.name, image: data.image, tracks: data.tracks };
-    writeJSON(PLAYLISTS_KEY, [pl, ...savedPlaylists().filter((p) => p.id !== pl.id)]);
-    registerPlaylistTracks(pl);
-    if (topScreen() !== loading) return; // user backed out meanwhile
-    const below = state.navStack[state.navStack.length - 2];
-    if (below && below.key === "playlists") state.navStack[state.navStack.length - 2] = buildPlaylistsScreen();
-    replaceTop(buildStreamPlaylistScreen(pl.id));
+    const screen = await build();
+    if (topScreen() === loading) replaceTop(screen);
   } catch (e) {
     if (topScreen() !== loading) return;
-    loading.emptyMessage = e.message || "Couldn't load that link.";
-    loading.title = "Spotify Playlists";
+    loading.emptyMessage = e.message || "Couldn't load from Spotify.";
     render();
   }
 }
 
-/* ---- Matching songs to YouTube videos ---- */
-async function fetchMatch(track) {
-  const matches = readJSON(MATCHES_KEY, {});
-  const hit = matches[track.spotifyId];
-  if (hit && hit.videoId) return applyMatchArt(track, hit);
-  const params = new URLSearchParams({
-    id: track.spotifyId, title: track.title, artist: track.artist,
-    duration: String(Math.round((track.duration || 0) * 1000)),
-  });
-  const res = await fetch(`api/match?${params}`);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.videoId) throw new Error(data.error || "Couldn't find this song on YouTube");
-  const entry = { videoId: data.videoId, art: data.art || null, alternates: (data.alternates || []).map((a) => a.videoId), tried: [] };
-  matches[track.spotifyId] = entry;
-  // Keep the local cache bounded.
-  const keys = Object.keys(matches);
-  if (keys.length > 3000) keys.slice(0, keys.length - 3000).forEach((k) => delete matches[k]);
-  writeJSON(MATCHES_KEY, matches);
-  return applyMatchArt(track, entry);
-}
-
-/* Playlists read without the Spotify API only carry the playlist cover; the
-   match brings each song's own cover, which then replaces it. */
-function applyMatchArt(track, entry) {
-  if (entry.art && !track.hasOwnArt) {
-    track.artUrl = entry.art;
-    track.hasOwnArt = true;
+async function spFetchAll(path, maxItems) {
+  let items = [];
+  let next = path;
+  while (next && items.length < maxItems) {
+    const page = await spApi("GET", next);
+    items = items.concat((page && page.items) || []);
+    next = page && page.next;
   }
-  return entry;
+  return items.slice(0, maxItems);
 }
 
-/* Swaps the current song's video for the next-best match and remembers it. */
-function retryCurrentMatch(reason) {
-  const track = getTrack(state.currentTrackId);
-  if (!track || !track.stream) return false;
-  const matches = readJSON(MATCHES_KEY, {});
-  const m = matches[track.spotifyId];
-  if (!m || !m.alternates || !m.alternates.length) {
-    showToast(reason || "No other versions found");
-    return false;
-  }
-  m.tried = [...(m.tried || []), m.videoId];
-  m.videoId = m.alternates.shift();
-  matches[track.spotifyId] = m;
-  writeJSON(MATCHES_KEY, matches);
-  showToast(reason ? `${reason} Trying another version…` : "Trying another version…");
-  loadAndPlay(track.id);
-  return true;
-}
-
-/* ---- YouTube player ---- */
-function loadYouTubeApi() {
-  if (yt.apiPromise) return yt.apiPromise;
-  yt.apiPromise = new Promise((resolve, reject) => {
-    if (window.YT && window.YT.Player) { resolve(); return; }
-    const prev = window.onYouTubeIframeAPIReady;
-    window.onYouTubeIframeAPIReady = () => { if (prev) prev(); resolve(); };
-    const s = document.createElement("script");
-    s.src = "https://www.youtube.com/iframe_api";
-    s.onerror = () => { yt.apiPromise = null; reject(new Error("Couldn't reach YouTube")); };
-    document.head.appendChild(s);
-  });
-  return yt.apiPromise;
-}
-
-function ensureYtPlayer() {
-  if (yt.playerPromise) return yt.playerPromise;
-  yt.playerPromise = loadYouTubeApi().then(() => new Promise((resolve) => {
-    const p = new YT.Player("ytPlayer", {
-      width: "100%",
-      height: "100%",
-      playerVars: {
-        playsinline: 1, controls: 0, disablekb: 1, fs: 0, rel: 0,
-        iv_load_policy: 3, modestbranding: 1, origin: location.origin,
+function buildSpotifyScreen() {
+  const items = spotifySignedIn() ? [
+    {
+      label: "Now Playing", chevron: true, action: async () => {
+        await pollSpotify();
+        if (!sp.trackId) { showToast("Nothing is playing on Spotify"); return; }
+        adoptRemote();
+        pushScreen(nowPlayingScreen);
       },
-      events: {
-        onReady: () => { yt.player = p; p.setVolume(Math.round(audioEl.volume * 100)); resolve(p); },
-        onStateChange: onYtStateChange,
-        onError: onYtError,
-      },
-    });
-  }));
-  yt.playerPromise.catch(() => { yt.playerPromise = null; });
-  return yt.playerPromise;
+    },
+    { label: "Playlists", chevron: true, action: () => pushLoaded("Playlists", buildSpotifyPlaylistsScreen) },
+    { label: "Liked Songs", chevron: true, action: () => pushLoaded("Liked Songs", buildSpotifyLikedScreen) },
+    { label: "Devices", chevron: true, action: () => pushLoaded("Devices", buildSpotifyDevicesScreen) },
+    { label: "Sign Out", chevron: false, action: () => { spotifyLogout(); replaceTop(buildSpotifyScreen()); } },
+  ] : [
+    { label: "Sign In to Spotify", chevron: false, action: () => spotifyLogin() },
+  ];
+  return { key: "spotify", kind: "list", title: "Spotify", selected: 0, scrollOffset: 0, items };
 }
 
-function onYtStateChange(e) {
-  if (!yt.active) return;
-  yt.state = e.data;
-  if (e.data === 1) { // playing
-    ytHintEl.classList.remove("show");
-    clearTimeout(yt.hintTimer);
-    handlePlay();
-    clearInterval(yt.pollTimer);
-    yt.pollTimer = setInterval(() => { if (yt.active && yt.state === 1) handleTimeUpdate(); }, 400);
-  } else if (e.data === 2) { // paused
-    clearInterval(yt.pollTimer);
-    handlePause();
-  } else if (e.data === 0) { // ended
-    clearInterval(yt.pollTimer);
-    handleEnded();
-  }
-}
-
-function onYtError(e) {
-  if (!yt.active) return;
-  // 100: removed/private, 101/150: owner blocks embedding, 5: HTML5 error.
-  const myLoad = state.loadToken;
-  if (!retryCurrentMatch("This video can't play here.")) {
-    showToast("Couldn't play this song, skipping");
-    setTimeout(() => { if (myLoad === state.loadToken) playNext(); }, 1200);
-  }
-}
-
-function stopYouTube() {
-  if (!yt.active) return;
-  yt.active = false;
-  yt.videoId = null;
-  yt.state = -1;
-  clearInterval(yt.pollTimer);
-  clearTimeout(yt.hintTimer);
-  ytHintEl.classList.remove("show");
-  if (yt.player && yt.player.stopVideo) yt.player.stopVideo();
-  placeYtDock();
-}
-
-async function loadAndPlayStream(trackId, myLoad) {
-  const track = getTrack(trackId);
-  // Hand over from the local <audio> element (its events are ignored while yt.active).
-  yt.active = true;
-  yt.videoId = null;
-  yt.state = -1;
-  clearInterval(yt.pollTimer);
-  audioEl.pause();
-  if (audioEl.getAttribute("src")) { audioEl.removeAttribute("src"); audioEl.load(); }
-  if (yt.player && yt.player.stopVideo) yt.player.stopVideo();
-  state.isPlaying = false;
-  state.artObjectUrl = (track && track.artUrl) || null;
-  renderNowPlayingIfTop();
-  updateMediaSessionMetadata();
-  startYtDockLoop();
-
-  let match;
-  try {
-    [match] = await Promise.all([fetchMatch(track), ensureYtPlayer()]);
-  } catch (e) {
-    if (myLoad !== state.loadToken) return;
-    showToast(e.message || "Couldn't find this song");
-    setTimeout(() => { if (myLoad === state.loadToken && state.queue.length > 1) playNext(); }, 1800);
-    return;
-  }
-  if (myLoad !== state.loadToken) return;
-
-  // The match may have brought this song's own cover art.
-  if (track.artUrl && track.artUrl !== state.artObjectUrl) {
-    state.artObjectUrl = track.artUrl;
-    state.npBuiltTrackId = undefined;
-    renderNowPlayingIfTop();
-    updateMediaSessionMetadata();
-  }
-
-  yt.videoId = match.videoId;
-  yt.player.loadVideoById(match.videoId);
-
-  // Mobile browsers may refuse to start a video the user hasn't touched yet;
-  // if it hasn't started shortly, ask for one tap on the player.
-  clearTimeout(yt.hintTimer);
-  yt.hintTimer = setTimeout(() => {
-    if (myLoad === state.loadToken && yt.active && yt.state !== 1 && yt.state !== 3) {
-      ytHintEl.classList.add("show");
-      showToast("Tap the cover to start playback");
-    }
-  }, 2500);
-}
-
-/* The player has to stay visible, so it sits exactly over the album art of
-   whatever Now Playing view is showing, or as a small tile otherwise. A rAF
-   loop follows the art through Cover Flow animations and rotations. */
-let ytDockRaf = 0;
-let ytDockLast = "";
-
-function ytDockTarget() {
-  if (isCarPlay()) {
-    if (cpView === "nowplaying") return { el: cpArtEl, radius: 10 };
-    return { el: carplayEl.querySelector(".cp-main"), mini: 112, radius: 10 };
-  }
-  const scr = topScreen();
-  if (scr && scr.kind === "nowplaying") {
-    const art = screenContentEl.querySelector(".cf-track.cf-current .cf-art") || screenContentEl.querySelector(".np-art");
-    if (art) return { el: art, radius: 4 };
-  }
-  return { el: document.getElementById("screen"), mini: 64, radius: 4 };
-}
-
-function placeYtDock() {
-  if (!yt.active) {
-    if (ytDockLast !== "off") { ytDockEl.classList.remove("active"); ytDockLast = "off"; }
-    return;
-  }
-  const { el, mini, radius } = ytDockTarget();
-  if (!el) return;
-  const r = el.getBoundingClientRect();
-  let left = r.left, top = r.top, w = r.width, h = r.height;
-  if (mini) { w = h = mini; left = r.right - mini - 8; top = r.bottom - mini - 8; }
-  const key = `${Math.round(left)},${Math.round(top)},${Math.round(w)},${Math.round(h)},${radius}`;
-  if (key === ytDockLast) return;
-  ytDockLast = key;
-  ytDockEl.classList.add("active");
-  Object.assign(ytDockEl.style, {
-    left: left + "px", top: top + "px", width: w + "px", height: h + "px", borderRadius: radius + "px",
-  });
-}
-
-function startYtDockLoop() {
-  if (ytDockRaf) return;
-  const tick = () => {
-    placeYtDock();
-    ytDockRaf = yt.active ? requestAnimationFrame(tick) : 0;
+async function buildSpotifyPlaylistsScreen() {
+  const lists = await spFetchAll("/me/playlists?limit=50", 200);
+  return {
+    key: "sp-playlists", kind: "list", title: "Playlists", selected: 0, scrollOffset: 0,
+    emptyMessage: "No playlists found.",
+    items: lists.filter(Boolean).map((pl) => ({
+      label: pl.name,
+      sub: pl.tracks && pl.tracks.total != null ? String(pl.tracks.total) : "",
+      chevron: true,
+      action: () => pushLoaded(pl.name, async () => {
+        const fields = "items(track(id,uri,name,duration_ms,type,artists(name),album(name,images))),next";
+        const rows = await spFetchAll(`/playlists/${pl.id}/tracks?limit=100&fields=${encodeURIComponent(fields)}`, 500);
+        return buildSpotifyTracksScreen(pl.name, rows.map((r) => r && r.track), { contextUri: pl.uri });
+      }),
+    })),
   };
-  ytDockRaf = requestAnimationFrame(tick);
 }
 
-/* Keep the screen on while a streamed song plays: mobile browsers pause
-   YouTube when the phone locks or the browser goes to the background. */
-let wakeLock = null;
-async function updateWakeLock() {
-  const want = yt.active && state.isPlaying && document.visibilityState === "visible";
-  try {
-    if (want && !wakeLock && navigator.wakeLock) {
-      wakeLock = await navigator.wakeLock.request("screen");
-      wakeLock.addEventListener("release", () => { wakeLock = null; });
-    } else if (!want && wakeLock) {
-      await wakeLock.release();
-      wakeLock = null;
-    }
-  } catch (e) {}
+async function buildSpotifyLikedScreen() {
+  const rows = await spFetchAll("/me/tracks?limit=50", 300);
+  return buildSpotifyTracksScreen("Liked Songs", rows.map((r) => r && r.track), {});
 }
-document.addEventListener("visibilitychange", updateWakeLock);
+
+function buildSpotifyTracksScreen(title, rawTracks, context) {
+  const tracks = rawTracks.filter((t) => t && t.id && t.type !== "episode").map(registerRemoteTrack);
+  const trackIds = tracks.map((t) => t.id);
+  const items = [
+    ...(tracks.length ? [{
+      label: "Shuffle Play", chevron: false, action: async () => {
+        await spApi("PUT", "/me/player/shuffle?state=true").catch(() => {});
+        state.queue = shuffleArray(trackIds);
+        state.queueName = title;
+        state.remoteContext = context;
+        state.shuffleOrigQueue = null;
+        playQueueIndex(0);
+      },
+    }] : []),
+    ...tracks.map((t, i) => ({ label: t.title, sub: formatDuration(t.duration), chevron: false, trackIndex: i })),
+  ];
+  return {
+    key: "sp-tracks-" + title, kind: "list", title, selected: 0, scrollOffset: 0,
+    emptyMessage: "No songs here.", trackIds, remoteContext: context, items,
+  };
+}
+
+async function buildSpotifyDevicesScreen() {
+  const data = await spApi("GET", "/me/player/devices");
+  const devices = (data && data.devices) || [];
+  return {
+    key: "sp-devices", kind: "list", title: "Devices", selected: 0, scrollOffset: 0,
+    emptyMessage: "No devices found.\nOpen Spotify on your phone or computer.",
+    items: devices.map((d) => ({
+      label: d.name, sub: d.is_active ? "✓" : d.type, chevron: false,
+      action: async () => {
+        try {
+          await spApi("PUT", "/me/player", { device_ids: [d.id], play: sp.isPlaying });
+          showToast(`Switched to ${d.name}`);
+          popScreen();
+        } catch (e) { showToast(e.message); }
+      },
+    })),
+  };
+}
 
 /* ---------------------------------------------------------
    10. Media Session
@@ -2285,7 +2403,7 @@ async function clearLibrary() {
   state.npBuiltTrackId = undefined;
   state.npBuiltStyle = null;
   state.cfSlots = null;
-  stopYouTube();
+  leaveRemote(false);
   audioEl.pause();
   audioEl.removeAttribute("src");
   state.currentTrackId = null;
@@ -2322,7 +2440,8 @@ function playTick() {
 let volumeOverlayTimer = null;
 function flashVolumeOverlay() {
   if (!volumeOverlayEl || !volumeFillEl) return;
-  volumeFillEl.style.width = Math.round(audioEl.volume * 100) + "%";
+  const vol = sp.active && sp.volume != null ? sp.volume / 100 : audioEl.volume;
+  volumeFillEl.style.width = Math.round(vol * 100) + "%";
   volumeOverlayEl.classList.add("show");
   clearTimeout(volumeOverlayTimer);
   volumeOverlayTimer = setTimeout(() => volumeOverlayEl.classList.remove("show"), 900);
@@ -2581,10 +2700,12 @@ function handleWheelTick(direction) {
   if (screen.kind === "nowplaying") {
     const mode = settings.wheelNowPlaying;
 
-    if (mode === "volume") {
+    if (mode === "volume" && sp.active) {
+      setRemoteVolume((sp.volume == null ? 50 : sp.volume) + direction * 5);
+      flashVolumeOverlay();
+    } else if (mode === "volume") {
       audioEl.volume = Math.max(0, Math.min(1, audioEl.volume + direction * 0.05));
       localStorage.setItem("ripod:volume", String(audioEl.volume));
-      if (yt.player && yt.player.setVolume) yt.player.setVolume(Math.round(audioEl.volume * 100));
       flashVolumeOverlay();
     } else {
       const now = Date.now();
@@ -2678,7 +2799,7 @@ async function boot() {
   }
 
   await refreshLibrary();
-  loadSavedPlaylists();
+  await initSpotify();
   await loadStickers();
   state.navStack = [buildMainMenu()];
   render();
