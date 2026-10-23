@@ -1,8 +1,8 @@
 /* ============================================================
-   Retro iPod — Service Worker v4
+   Retro iPod — Service Worker v5
    ============================================================ */
 
-const CACHE_NAME = "retro-ipod-shell-v4";
+const CACHE_NAME = "retro-ipod-shell-v5";
 
 const ASSETS = [
   "./",

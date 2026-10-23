@@ -104,6 +104,102 @@
   </div>
 </div>
 
+<!-- CarPlay-style UI: only shown on phones held in landscape (see style.css) -->
+<div class="carplay" id="carplay">
+  <aside class="cp-dock">
+    <div class="cp-status">
+      <span class="cp-clock" id="cpClock">9:41</span>
+      <span class="cp-signal" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span class="cp-net">5G</span>
+    </div>
+    <div class="cp-dock-apps">
+      <button class="cp-app cp-app-music" data-cp="nowplaying" aria-label="Now Playing">
+        <svg viewBox="0 0 24 24"><path d="M9 17.5a2.5 2.5 0 1 1-2.5-2.5c.53 0 1.03.17 1.5.45V5.6l11-2.1v11.9a2.5 2.5 0 1 1-2.5-2.5c.53 0 1.03.17 1.5.45V7.2l-9 1.7v8.6z" fill="#fff"/></svg>
+      </button>
+      <button class="cp-app cp-app-library" data-cp="songs" aria-label="Songs">
+        <svg viewBox="0 0 24 24"><path d="M4 6h12M4 11h12M4 16h8" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/><path d="M20 9v8.2a2 2 0 1 1-1.6-2V9H20z" fill="#fff"/></svg>
+      </button>
+      <button class="cp-app cp-app-shuffle" data-cp="shuffleall" aria-label="Shuffle All">
+        <svg viewBox="0 0 24 24"><path d="M3 7h3.5c2 0 3.2 1 4.3 2.6l2.4 4.8C14.3 16 15.5 17 17.5 17H20M3 17h3.5c2 0 3.2-1 4.3-2.6M13.2 9.6C14.3 8 15.5 7 17.5 7H20M18 4.5 20.5 7 18 9.5M18 14.5l2.5 2.5-2.5 2.5" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <button class="cp-home" data-cp="home" aria-label="Home">
+      <svg viewBox="0 0 24 24"><g fill="#fff"><rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/></g></svg>
+    </button>
+  </aside>
+
+  <main class="cp-main">
+    <!-- Now Playing -->
+    <section class="cp-view cp-nowplaying" id="cpNowPlaying">
+      <header class="cp-topbar">
+        <button class="cp-back" data-cp="songs" aria-label="Back">
+          <svg viewBox="0 0 24 24"><path d="M15 4.5 7.5 12l7.5 7.5" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <span class="cp-topbar-title">Now Playing</span>
+        <button class="cp-topbar-btn" data-cp="songs" aria-label="Up Next">
+          <svg viewBox="0 0 24 24"><path d="M4 6.5h11M4 12h11M4 17.5h7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="19" cy="6.5" r="1.4" fill="currentColor"/><circle cx="19" cy="12" r="1.4" fill="currentColor"/></svg>
+        </button>
+      </header>
+
+      <div class="cp-np-body">
+        <div class="cp-art" id="cpArt"><span class="cp-art-ph">♪</span></div>
+        <div class="cp-info">
+          <div class="cp-meta">
+            <div class="cp-title" id="cpTitle">Not Playing</div>
+            <div class="cp-artist" id="cpArtist"></div>
+            <div class="cp-album" id="cpAlbum"></div>
+          </div>
+
+          <div class="cp-progress">
+            <div class="cp-bar-track" id="cpBarTrack"><div class="cp-bar-fill" id="cpBarFill"></div></div>
+            <div class="cp-time-row">
+              <span id="cpTimeCur">0:00</span>
+              <span id="cpTimeRemaining">-0:00</span>
+            </div>
+          </div>
+
+          <div class="cp-controls">
+            <button class="cp-ctrl" data-cp="prev" aria-label="Previous">
+              <svg viewBox="0 0 48 32"><path d="M23 16 41 4.5v23zM5 16 23 4.5v23z" fill="currentColor"/></svg>
+            </button>
+            <button class="cp-ctrl cp-ctrl-play" data-cp="playpause" aria-label="Play / Pause">
+              <svg class="cp-icon-play" viewBox="0 0 32 32"><path d="M8 4.5v23L27 16z" fill="currentColor"/></svg>
+              <svg class="cp-icon-pause" viewBox="0 0 32 32"><rect x="7" y="4.5" width="6.5" height="23" rx="1.2" fill="currentColor"/><rect x="18.5" y="4.5" width="6.5" height="23" rx="1.2" fill="currentColor"/></svg>
+            </button>
+            <button class="cp-ctrl" data-cp="next" aria-label="Next">
+              <svg viewBox="0 0 48 32"><path d="M25 16 7 4.5v23zM43 16 25 4.5v23z" fill="currentColor"/></svg>
+            </button>
+          </div>
+
+          <div class="cp-secondary">
+            <button class="cp-toggle" id="cpShuffleBtn" data-cp="shuffle" aria-label="Shuffle">
+              <svg viewBox="0 0 24 24"><path d="M3 7h3.5c2 0 3.2 1 4.3 2.6l2.4 4.8C14.3 16 15.5 17 17.5 17H20M3 17h3.5c2 0 3.2-1 4.3-2.6M13.2 9.6C14.3 8 15.5 7 17.5 7H20M18 4.5 20.5 7 18 9.5M18 14.5l2.5 2.5-2.5 2.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button class="cp-toggle" id="cpRepeatBtn" data-cp="repeat" aria-label="Repeat">
+              <svg viewBox="0 0 24 24"><path d="M4 11V9.5A2.5 2.5 0 0 1 6.5 7H19M16.5 4.5 19 7l-2.5 2.5M20 13v1.5a2.5 2.5 0 0 1-2.5 2.5H5M7.5 19.5 5 17l2.5-2.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="cp-repeat-one">1</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Songs list -->
+    <section class="cp-view cp-songs" id="cpSongs" hidden>
+      <header class="cp-topbar">
+        <button class="cp-back" data-cp="nowplaying" aria-label="Back">
+          <svg viewBox="0 0 24 24"><path d="M15 4.5 7.5 12l7.5 7.5" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <span class="cp-topbar-title">Songs</span>
+        <button class="cp-topbar-btn cp-topbar-np" data-cp="nowplaying" aria-label="Now Playing">
+          <span class="cp-eq"><i></i><i></i><i></i></span>
+        </button>
+      </header>
+      <div class="cp-list" id="cpList"></div>
+    </section>
+  </main>
+</div>
+
 <!-- Hidden inputs for media and customization -->
 <input type="file" id="fileInput" accept="audio/*,.mp3,.m4a,.aac,.wav,.mp4" multiple class="visually-hidden" tabindex="-1" />
 <input type="file" id="stickerFileInput" accept="image/*,.png,.jpg,.jpeg,.webp,.svg,.gif" class="visually-hidden" tabindex="-1" />

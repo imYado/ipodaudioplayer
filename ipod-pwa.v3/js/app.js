@@ -257,6 +257,7 @@ const state = {
   npBuiltStyle: null,
   npBuildToken: 0,
   cfSlots: null,
+  shuffleOrigQueue: null,
 };
 
 const ipodShellEl = document.getElementById("ipodShell");
@@ -924,6 +925,7 @@ function render() {
   else if (screen.kind === "nowplaying") renderNowPlaying();
   else if (screen.kind === "progress") renderProgress(screen);
   else if (screen.kind === "rgb-tuner") renderRgbTuner(screen);
+  updateCarPlay();
 }
 
 function renderList(screen) {
@@ -1372,7 +1374,174 @@ function updateCoverFlowProgress() {
   if (remEl) remEl.textContent = "-" + formatDuration(remaining);
 }
 
-function renderNowPlayingIfTop() { if (topScreen() && topScreen().kind === "nowplaying") renderNowPlaying(); }
+function renderNowPlayingIfTop() {
+  if (topScreen() && topScreen().kind === "nowplaying") renderNowPlaying();
+  updateCarPlay();
+}
+
+/* ---------------------------------------------------------
+   8c. CarPlay Mode — phones held in landscape
+   The iPod shell is hidden by CSS under this media query and a
+   CarPlay-style Now Playing / Songs UI is shown instead. It reads
+   the same playback state, so rotating back resumes seamlessly.
+--------------------------------------------------------- */
+const carplayMQ = window.matchMedia("(orientation: landscape) and (max-height: 500px) and (pointer: coarse)");
+const carplayEl = document.getElementById("carplay");
+const cpNowPlayingEl = document.getElementById("cpNowPlaying");
+const cpSongsEl = document.getElementById("cpSongs");
+const cpListEl = document.getElementById("cpList");
+const cpClockEl = document.getElementById("cpClock");
+const cpArtEl = document.getElementById("cpArt");
+const cpTitleEl = document.getElementById("cpTitle");
+const cpArtistEl = document.getElementById("cpArtist");
+const cpAlbumEl = document.getElementById("cpAlbum");
+const cpBarFillEl = document.getElementById("cpBarFill");
+const cpTimeCurEl = document.getElementById("cpTimeCur");
+const cpTimeRemainingEl = document.getElementById("cpTimeRemaining");
+const cpShuffleBtnEl = document.getElementById("cpShuffleBtn");
+const cpRepeatBtnEl = document.getElementById("cpRepeatBtn");
+
+let cpView = "nowplaying";
+let cpBuiltTrackId; // undefined forces the first paint
+let cpBuiltArtUrl;
+
+function isCarPlay() { return carplayMQ.matches; }
+
+function cpTime(sec) { return sec > 0 ? formatDuration(sec) : "0:00"; }
+
+function updateCarPlayClock() {
+  if (!isCarPlay()) return;
+  cpClockEl.textContent = new Date()
+    .toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    .replace(/\s?[AP]\.?M\.?$/i, "");
+}
+
+function setCarPlayView(view) {
+  cpView = view;
+  cpNowPlayingEl.hidden = view !== "nowplaying";
+  cpSongsEl.hidden = view !== "songs";
+  carplayEl.querySelector(".cp-app-music").classList.toggle("active", view === "nowplaying");
+  carplayEl.querySelector(".cp-app-library").classList.toggle("active", view === "songs");
+  if (view === "songs") renderCarPlayList();
+}
+
+function renderCarPlayList() {
+  const songs = sortedSongs();
+  if (!songs.length) {
+    cpListEl.innerHTML = `<div class="cp-list-empty">No songs yet.<br>Rotate to portrait to add music.</div>`;
+    return;
+  }
+  cpListEl.innerHTML = songs.map((t, i) => `
+    <button class="cp-row${t.id === state.currentTrackId ? " current" : ""}" data-cp="play" data-idx="${i}">
+      <span class="cp-row-icon">${t.id === state.currentTrackId ? "♫" : ""}</span>
+      <span class="cp-row-text">
+        <span class="cp-row-title">${esc(t.title)}</span>
+        <span class="cp-row-sub">${esc(t.artist || "Unknown Artist")}</span>
+      </span>
+      <span class="cp-row-dur">${formatDuration(t.duration)}</span>
+    </button>`).join("");
+}
+
+function updateCarPlay() {
+  if (!isCarPlay()) return;
+  const track = state.library.find((t) => t.id === state.currentTrackId);
+
+  carplayEl.classList.toggle("is-playing", state.isPlaying);
+  carplayEl.classList.toggle("is-empty", !track);
+
+  if (cpBuiltTrackId !== state.currentTrackId || cpBuiltArtUrl !== state.artObjectUrl) {
+    cpBuiltTrackId = state.currentTrackId;
+    cpBuiltArtUrl = state.artObjectUrl;
+    cpTitleEl.textContent = track ? track.title : "Not Playing";
+    cpArtistEl.textContent = track ? (track.artist || "Unknown Artist") : "";
+    cpAlbumEl.textContent = track ? (track.album || "Unknown Album") : "";
+    cpArtEl.style.backgroundImage = state.artObjectUrl ? `url('${state.artObjectUrl}')` : "";
+    cpArtEl.classList.toggle("has-art", !!state.artObjectUrl);
+    if (cpView === "songs") renderCarPlayList();
+  }
+
+  const dur = audioEl.duration || (track ? track.duration : 0) || 0;
+  const cur = track ? (audioEl.currentTime || 0) : 0;
+  cpBarFillEl.style.width = (dur ? Math.min(100, (cur / dur) * 100) : 0) + "%";
+  cpTimeCurEl.textContent = cpTime(cur);
+  cpTimeRemainingEl.textContent = "-" + cpTime(Math.max(0, dur - cur));
+
+  const repeat = settings.repeat;
+  cpRepeatBtnEl.classList.toggle("on", repeat !== "off");
+  cpRepeatBtnEl.classList.toggle("one", repeat === "one");
+  cpShuffleBtnEl.classList.toggle("on", !!state.shuffleOrigQueue);
+}
+
+/* Shuffle toggle: keeps the current song playing and shuffles the rest of
+   the queue behind it; toggling off restores the original order. */
+function toggleCarPlayShuffle() {
+  if (!state.queue.length) return;
+  if (state.shuffleOrigQueue) {
+    state.queue = state.shuffleOrigQueue;
+    state.shuffleOrigQueue = null;
+  } else {
+    state.shuffleOrigQueue = state.queue.slice();
+    const rest = state.queue.filter((id) => id !== state.currentTrackId);
+    state.queue = state.currentTrackId ? [state.currentTrackId, ...shuffleArray(rest)] : shuffleArray(rest);
+  }
+  state.queueIndex = Math.max(0, state.queue.indexOf(state.currentTrackId));
+  state.npBuiltStyle = null; // cover flow neighbours changed; rebuild when back in portrait
+}
+
+function cycleCarPlayRepeat() {
+  const order = ["off", "all", "one"];
+  settings.repeat = order[(order.indexOf(settings.repeat) + 1) % order.length];
+}
+
+carplayEl.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-cp]");
+  if (!btn) return;
+  switch (btn.dataset.cp) {
+    case "nowplaying": setCarPlayView("nowplaying"); break;
+    case "songs":
+    case "home": setCarPlayView("songs"); break;
+    case "shuffleall":
+      state.shuffleOrigQueue = null;
+      shuffleAll();
+      setCarPlayView("nowplaying");
+      break;
+    case "play": {
+      state.shuffleOrigQueue = null;
+      state.queue = sortedSongs().map((t) => t.id);
+      playQueueIndex(Number(btn.dataset.idx));
+      setCarPlayView("nowplaying");
+      break;
+    }
+    case "playpause":
+      if (!state.currentTrackId) { setCarPlayView("songs"); break; }
+      togglePlayPause();
+      break;
+    case "prev": playPrev(); break;
+    case "next": playNext(); break;
+    case "shuffle": toggleCarPlayShuffle(); break;
+    case "repeat": cycleCarPlayRepeat(); break;
+  }
+  updateCarPlay();
+});
+
+setupSeekBar(document.getElementById("cpBarTrack"));
+
+function onCarPlayModeChange() {
+  if (isCarPlay()) {
+    cpBuiltTrackId = undefined;
+    updateCarPlayClock();
+    setCarPlayView(cpView);
+    updateCarPlay();
+  } else {
+    // Back to the iPod: force the now-playing screen to rebuild in case the
+    // track or queue changed while it was hidden.
+    state.npBuiltStyle = null;
+    if (state.navStack.length) render();
+  }
+}
+if (carplayMQ.addEventListener) carplayMQ.addEventListener("change", onCarPlayModeChange);
+else if (carplayMQ.addListener) carplayMQ.addListener(onCarPlayModeChange);
+setInterval(updateCarPlayClock, 10000);
 
 /* ---------------------------------------------------------
    9. Playback Engine
@@ -1433,12 +1602,14 @@ function playPrev(forceSkip = false) {
 }
 
 function setQueueFromScreen(screen, idx) {
+  state.shuffleOrigQueue = null;
   state.queue = screen.trackIds.slice();
   playQueueIndex(idx);
 }
 
 function shuffleAll() {
   if (!state.library.length) return;
+  state.shuffleOrigQueue = null;
   state.queue = shuffleArray(state.library.map((t) => t.id));
   playQueueIndex(0);
 }
@@ -1637,6 +1808,7 @@ async function clearLibrary() {
   state.currentTrackId = null;
   state.queue = [];
   state.queueIndex = -1;
+  state.shuffleOrigQueue = null;
   await idbClearAll();
   await refreshLibrary();
 }
@@ -2023,6 +2195,7 @@ async function boot() {
   await loadStickers();
   state.navStack = [buildMainMenu()];
   render();
+  onCarPlayModeChange();
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
