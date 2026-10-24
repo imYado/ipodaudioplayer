@@ -167,6 +167,9 @@ const settings = {
   get wheelSound() { return localStorage.getItem("ripod:wheelSound") !== "off"; },
   set wheelSound(v) { localStorage.setItem("ripod:wheelSound", v ? "on" : "off"); },
 
+  get haptics() { return localStorage.getItem("ripod:haptics") !== "off"; },
+  set haptics(v) { localStorage.setItem("ripod:haptics", v ? "on" : "off"); },
+
   get theme() { return localStorage.getItem("ripod:theme") || "silver"; },
   set theme(v) { 
     localStorage.setItem("ripod:theme", v);
@@ -754,7 +757,7 @@ function buildSettingsScreen() {
     : (isVolumeSettable() ? "Volume" : "Volume (iOS Locked)");
 
   return {
-    key: "settings-" + settings.repeat + "-" + settings.wheelSound + "-" + settings.wheelNowPlaying,
+    key: "settings-" + settings.repeat + "-" + settings.wheelSound + "-" + settings.haptics + "-" + settings.wheelNowPlaying,
     kind: "list",
     title: "Settings",
     selected: 0,
@@ -800,6 +803,16 @@ function buildSettingsScreen() {
           replaceTop(buildSettingsScreen());
         },
       },
+      ...(hapticsSupported ? [{
+        label: "Haptics",
+        sub: settings.haptics ? "On" : "Off",
+        chevron: false,
+        action: () => {
+          settings.haptics = !settings.haptics;
+          replaceTop(buildSettingsScreen());
+          haptic("press");
+        },
+      }] : []),
       {
         label: "Storage Used",
         sub: formatBytes(state.library.reduce((sum, t) => sum + (t.sizeBytes || 0), 0)),
@@ -1533,6 +1546,7 @@ function cycleCarPlayRepeat() {
 carplayEl.addEventListener("click", (e) => {
   const btn = e.target.closest("[data-cp]");
   if (!btn) return;
+  haptic("press");
   switch (btn.dataset.cp) {
     case "nowplaying": setCarPlayView("nowplaying"); break;
     case "songs":
@@ -1870,6 +1884,47 @@ function playTick() {
   } catch (e) {}
 }
 
+/* Haptics. Android/Chrome gets navigator.vibrate. iOS Safari has no
+   vibrate API, but since iOS 18 toggling an <input type="checkbox" switch>
+   plays the system haptic, so we click a hidden label bound to one. This
+   only fires inside a user gesture, which every call site here is. */
+const VIBRATE_MS = { tick: 8, press: 15 };
+const canVibrate = typeof navigator.vibrate === "function";
+const hapticsSupported = canVibrate || isIOS;
+let hapticLabelEl = null;
+
+function getHapticLabel() {
+  if (hapticLabelEl) return hapticLabelEl;
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.setAttribute("switch", "");
+  input.id = "hapticSwitch";
+  input.tabIndex = -1;
+  hapticLabelEl = document.createElement("label");
+  hapticLabelEl.htmlFor = input.id;
+  hapticLabelEl.setAttribute("aria-hidden", "true");
+  hapticLabelEl.className = "haptic-proxy";
+  hapticLabelEl.appendChild(input);
+  // Keep the proxy's clicks from reaching any document-level handlers.
+  hapticLabelEl.addEventListener("click", (e) => e.stopPropagation());
+  input.addEventListener("click", (e) => e.stopPropagation());
+  document.body.appendChild(hapticLabelEl);
+  return hapticLabelEl;
+}
+
+function haptic(kind = "tick") {
+  if (!settings.haptics) return;
+  try {
+    if (canVibrate) navigator.vibrate(VIBRATE_MS[kind] || VIBRATE_MS.tick);
+    else if (isIOS) getHapticLabel().click();
+  } catch (e) {}
+}
+
+function clickFeedback(kind = "tick") {
+  haptic(kind);
+  playTick();
+}
+
 /* ---------------------------------------------------------
    13. Overlays
 --------------------------------------------------------- */
@@ -1946,7 +2001,7 @@ function activateSelected() {
 
 function onMenuButton() {
   if (state.hold) return;
-  playTick();
+  clickFeedback("press");
   if (state.stickersEditing) {
     setStickersEditingMode(false);
     return;
@@ -1956,7 +2011,7 @@ function onMenuButton() {
 
 function onSelectButton() {
   if (state.hold) return;
-  playTick();
+  clickFeedback("press");
   const screen = topScreen();
   if (screen.kind === "list" || screen.kind === "rgb-tuner") activateSelected();
   else if (screen.kind === "nowplaying") togglePlayPause();
@@ -1964,7 +2019,7 @@ function onSelectButton() {
 
 function onPlayPauseButton() {
   if (state.hold) return;
-  playTick();
+  clickFeedback("press");
   if (!state.currentTrackId) {
     const screen = topScreen();
     if (screen.kind === "list" && screen.trackIds && screen.items.length) {
@@ -1979,7 +2034,7 @@ function onPlayPauseButton() {
 
 function onNextButton() {
   if (state.hold) return;
-  playTick();
+  clickFeedback("press");
   const screen = topScreen();
   if (screen.kind === "nowplaying") {
     playNext();
@@ -1994,7 +2049,7 @@ function onNextButton() {
 
 function onPrevButton() {
   if (state.hold) return;
-  playTick();
+  clickFeedback("press");
   const screen = topScreen();
   if (screen.kind === "nowplaying") {
     playPrev();
@@ -2024,6 +2079,7 @@ screenContentEl.addEventListener("click", (e) => {
   if (row) {
     const screen = topScreen();
     if (screen.kind !== "list") return;
+    haptic("press");
     const idx = Number(row.dataset.idx);
     screen.selected = idx;
     if (screen.trackIds) setQueueFromScreen(screen, idx);
@@ -2128,7 +2184,7 @@ function normDeg(a) { return ((a + 180) % 360 + 360) % 360 - 180; }
 function handleWheelTick(direction) {
   const screen = topScreen();
   if (state.hold) return;
-  playTick();
+  clickFeedback("tick");
 
   if (screen.kind === "nowplaying") {
     const mode = settings.wheelNowPlaying;
@@ -2211,6 +2267,7 @@ document.addEventListener("keydown", (e) => {
    15. Hold Switch
 --------------------------------------------------------- */
 holdSwitchEl.addEventListener("click", () => {
+  haptic("press");
   state.hold = !state.hold;
   holdSwitchEl.classList.toggle("active", state.hold);
   holdSwitchEl.setAttribute("aria-pressed", String(state.hold));

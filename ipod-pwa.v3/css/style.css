@@ -1689,3 +1689,15 @@ body {
 
 /* Lists in CarPlay sit on a plain dark backdrop */
 .carplay.view-songs .cp-bg { opacity: 0; }
+
+/* Hidden iOS switch used to trigger system haptics (see haptic() in app.js) */
+.haptic-proxy {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
