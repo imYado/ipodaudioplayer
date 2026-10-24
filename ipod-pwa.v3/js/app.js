@@ -885,10 +885,286 @@ function buildMainMenu() {
       { label: "Artists", chevron: true, action: () => pushScreen(buildArtistsScreen()) },
       { label: "Albums", chevron: true, action: () => pushScreen(buildAlbumsScreen()) },
       { label: "Shuffle Songs", chevron: false, action: () => shuffleAll() },
+      { label: "Games", chevron: true, action: () => pushScreen(buildGamesScreen()) },
       { label: "Add Music...", chevron: false, action: () => triggerAddMusic() },
       { label: "Settings", chevron: true, action: () => pushScreen(buildSettingsScreen()) },
     ],
   };
+}
+
+/* ---------------------------------------------------------
+   6b. Music Quiz (like the classic iPod game)
+   Plays a short clip from a random song in the library and the player
+   picks its title from a list before the timer runs out. Faster answers
+   score more points. Uses its own audio element so the normal queue,
+   Now Playing and lock-screen metadata are left alone.
+--------------------------------------------------------- */
+const QUIZ_ROUNDS = 10;
+const QUIZ_CHOICES = 4;
+const QUIZ_ROUND_SECONDS = 10;
+const QUIZ_MAX_POINTS = 100;
+const QUIZ_REVEAL_MS = 1800;
+
+const quizAudio = new Audio();
+quizAudio.preload = "auto";
+quizAudio.setAttribute("playsinline", "");
+let quizAudioUrl = null;
+
+function quizBestScore() {
+  return parseInt(localStorage.getItem("ripod:quizBest"), 10) || 0;
+}
+
+function buildGamesScreen() {
+  return {
+    key: "games",
+    kind: "list",
+    title: "Games",
+    selected: 0,
+    scrollOffset: 0,
+    items: [
+      { label: "Music Quiz", chevron: true, action: () => pushScreen(buildMusicQuizScreen()) },
+    ],
+  };
+}
+
+function buildMusicQuizScreen() {
+  if (state.library.length < 2) {
+    return {
+      key: "quiz-empty",
+      kind: "list",
+      title: "Music Quiz",
+      selected: 0,
+      scrollOffset: 0,
+      emptyMessage: "Add at least 2 songs\nto play Music Quiz.",
+      items: [],
+    };
+  }
+  // The quiz takes over the speaker, like on the real iPod.
+  if (!audioEl.paused) audioEl.pause();
+
+  const screen = {
+    key: "quiz",
+    kind: "quiz",
+    title: "Music Quiz",
+    phase: "intro",
+    selected: 0,
+    token: 0,
+  };
+  resetQuiz(screen);
+  return screen;
+}
+
+function resetQuiz(screen) {
+  screen.answers = shuffleArray(state.library.map((t) => t.id)).slice(0, QUIZ_ROUNDS);
+  screen.round = 0;
+  screen.score = 0;
+  screen.correctCount = 0;
+  screen.newBest = false;
+  screen.preparing = prepareQuizRound(screen);
+}
+
+/* Picks the choices for the current round and loads its clip, seeked to a
+   random point in the song, so it can start the instant the round begins. */
+function prepareQuizRound(screen) {
+  const token = ++screen.token;
+  const answer = state.library.find((t) => t.id === screen.answers[screen.round]);
+  const titleKey = (t) => t.title.trim().toLowerCase();
+  const seen = new Set([titleKey(answer)]);
+  const decoys = [];
+  for (const t of shuffleArray(state.library.slice())) {
+    if (decoys.length >= QUIZ_CHOICES - 1) break;
+    if (seen.has(titleKey(t))) continue;
+    seen.add(titleKey(t));
+    decoys.push(t.id);
+  }
+  screen.answerId = answer.id;
+  screen.choices = shuffleArray([answer.id, ...decoys]);
+  screen.picked = null;
+  screen.selected = 0;
+
+  return (async () => {
+    const rec = await idbGet("audio", answer.id);
+    if (token !== screen.token) return;
+    if (quizAudioUrl) URL.revokeObjectURL(quizAudioUrl);
+    quizAudioUrl = rec && rec.blob ? URL.createObjectURL(rec.blob) : null;
+    if (!quizAudioUrl) { quizAudio.removeAttribute("src"); return; }
+    quizAudio.src = quizAudioUrl;
+
+    await new Promise((resolve) => {
+      if (quizAudio.readyState >= 1) return resolve();
+      quizAudio.addEventListener("loadedmetadata", resolve, { once: true });
+      quizAudio.addEventListener("error", resolve, { once: true });
+      setTimeout(resolve, 3000);
+    });
+    if (token !== screen.token) return;
+    const d = isFinite(quizAudio.duration) ? quizAudio.duration : (answer.duration || 0);
+    if (d > QUIZ_ROUND_SECONDS * 3) {
+      // Somewhere in the body of the song, not the intro or the fade out.
+      const lo = d * 0.15;
+      const hi = Math.max(lo, d * 0.75 - QUIZ_ROUND_SECONDS);
+      try { quizAudio.currentTime = lo + Math.random() * (hi - lo); } catch (e) {}
+    }
+  })();
+}
+
+async function beginQuizRound(screen) {
+  const token = screen.token;
+  await screen.preparing;
+  if (token !== screen.token || topScreen() !== screen) return;
+  screen.phase = "playing";
+  screen.roundStart = performance.now();
+  quizAudio.play().catch((err) => console.warn("Quiz playback blocked:", err));
+  render();
+  clearInterval(screen.ticker);
+  screen.ticker = setInterval(() => tickQuiz(screen), 100);
+}
+
+function quizRemaining(screen) {
+  const elapsed = (performance.now() - screen.roundStart) / 1000;
+  return Math.max(0, QUIZ_ROUND_SECONDS - elapsed);
+}
+
+function quizPointsNow(screen) {
+  return Math.round((quizRemaining(screen) / QUIZ_ROUND_SECONDS) * QUIZ_MAX_POINTS);
+}
+
+/* Updates the timer in place instead of re-rendering, so a tap that lands
+   mid-tick still hits the row it started on. */
+function tickQuiz(screen) {
+  if (screen.phase !== "playing") return;
+  const remaining = quizRemaining(screen);
+  const fill = screenContentEl.querySelector(".quiz-timer-fill");
+  const pts = screenContentEl.querySelector(".quiz-points");
+  if (fill) fill.style.width = (remaining / QUIZ_ROUND_SECONDS) * 100 + "%";
+  if (pts) pts.textContent = String(quizPointsNow(screen));
+  if (remaining <= 0) revealQuizAnswer(screen, null);
+}
+
+function revealQuizAnswer(screen, pickedId) {
+  if (screen.phase !== "playing") return;
+  clearInterval(screen.ticker);
+  const correct = pickedId === screen.answerId;
+  // Even a last-second right answer is worth something.
+  screen.lastPoints = correct ? Math.max(10, quizPointsNow(screen)) : 0;
+  screen.score += screen.lastPoints;
+  if (correct) screen.correctCount++;
+  screen.picked = pickedId;
+  screen.phase = "reveal";
+  render();
+
+  // Keep the clip playing while the answer shows, then move on.
+  const token = screen.token;
+  screen.revealTimer = setTimeout(() => {
+    if (token !== screen.token) return;
+    quizAudio.pause();
+    screen.round++;
+    if (screen.round >= screen.answers.length) finishQuiz(screen);
+    else {
+      screen.preparing = prepareQuizRound(screen);
+      beginQuizRound(screen);
+    }
+  }, QUIZ_REVEAL_MS);
+}
+
+function finishQuiz(screen) {
+  screen.phase = "done";
+  screen.selected = 0;
+  if (screen.score > quizBestScore()) {
+    screen.newBest = screen.score > 0;
+    localStorage.setItem("ripod:quizBest", String(screen.score));
+  }
+  render();
+}
+
+function stopQuiz(screen) {
+  screen.token++;
+  clearInterval(screen.ticker);
+  clearTimeout(screen.revealTimer);
+  quizAudio.pause();
+  quizAudio.removeAttribute("src");
+  quizAudio.load();
+  if (quizAudioUrl) { URL.revokeObjectURL(quizAudioUrl); quizAudioUrl = null; }
+}
+
+function quizRowCount(screen) {
+  if (screen.phase === "playing") return screen.choices.length;
+  if (screen.phase === "done") return 2;
+  return 1;
+}
+
+function quizSelect(screen) {
+  if (screen.phase === "intro") {
+    // play() straight from the Start press so iOS treats it as user
+    // initiated; later rounds reuse the same, now unlocked, element.
+    quizAudio.play().catch(() => {});
+    beginQuizRound(screen);
+  }
+  else if (screen.phase === "playing") revealQuizAnswer(screen, screen.choices[screen.selected]);
+  else if (screen.phase === "done") {
+    if (screen.selected === 0) {
+      resetQuiz(screen);
+      beginQuizRound(screen);
+    } else {
+      popScreen();
+    }
+  }
+}
+
+function renderQuiz(screen) {
+  const row = (label, idx, sel, cls = "", mark = "") => `
+    <div class="menu-row${sel ? " selected" : ""}${cls}" data-idx="${idx}">
+      <span class="label">${esc(label)}</span>${mark ? `<span class="quiz-mark">${mark}</span>` : ""}
+    </div>`;
+
+  if (screen.phase === "intro" || screen.phase === "done") {
+    const best = quizBestScore();
+    const body = screen.phase === "intro"
+      ? `<div class="quiz-card-title">Music Quiz</div>
+         <div class="quiz-card-text">Name the song before<br>the timer runs out.</div>
+         <div class="quiz-card-sub">${screen.answers.length} rounds · High Score ${best}</div>`
+      : `<div class="quiz-card-title">${screen.newBest ? "New High Score!" : "Quiz Over"}</div>
+         <div class="quiz-card-score">${screen.score}</div>
+         <div class="quiz-card-sub">${screen.correctCount} of ${screen.answers.length} correct · Best ${best}</div>`;
+    const rows = screen.phase === "intro"
+      ? row("Start", 0, true)
+      : row("Play Again", 0, screen.selected === 0) + row("Done", 1, screen.selected === 1);
+    screenContentEl.innerHTML = `
+      <div class="quiz-screen">
+        <div class="quiz-card">${body}</div>
+        <div class="menu-list quiz-actions">${rows}</div>
+      </div>`;
+    return;
+  }
+
+  const playing = screen.phase === "playing";
+  const remaining = playing ? quizRemaining(screen) : 0;
+  let status;
+  if (playing) status = `<span class="quiz-points">${quizPointsNow(screen)}</span>`;
+  else if (screen.picked === screen.answerId) status = `<span class="quiz-result good">+${screen.lastPoints}</span>`;
+  else status = `<span class="quiz-result bad">${screen.picked ? "Wrong" : "Time's Up"}</span>`;
+
+  let rows = "";
+  screen.choices.forEach((id, idx) => {
+    const t = state.library.find((x) => x.id === id);
+    let cls = "", mark = "";
+    if (!playing) {
+      if (id === screen.answerId) { cls = " quiz-correct"; mark = "✓"; }
+      else if (id === screen.picked) { cls = " quiz-wrong"; mark = "✗"; }
+    }
+    // During the reveal the colours carry the answer, not the selection.
+    rows += row(t ? t.title : "Unknown", idx, playing && idx === screen.selected, cls, mark);
+  });
+
+  screenContentEl.innerHTML = `
+    <div class="quiz-screen">
+      <div class="quiz-head">
+        <span>${screen.round + 1} of ${screen.answers.length}</span>
+        ${status}
+        <span>Score ${screen.score}</span>
+      </div>
+      <div class="quiz-timer"><div class="quiz-timer-fill" style="width:${(remaining / QUIZ_ROUND_SECONDS) * 100}%"></div></div>
+      <div class="menu-list quiz-choices">${rows}</div>
+    </div>`;
 }
 
 /* ---------------------------------------------------------
@@ -898,7 +1174,10 @@ function topScreen() { return state.navStack[state.navStack.length - 1]; }
 function pushScreen(screen) { state.navStack.push(screen); render(); }
 function popScreen() {
   if (state.stickersEditing) setStickersEditingMode(false);
-  if (state.navStack.length > 1) state.navStack.pop();
+  if (state.navStack.length > 1) {
+    const leaving = state.navStack.pop();
+    if (leaving.kind === "quiz") stopQuiz(leaving);
+  }
   render();
 }
 function replaceTop(screen) { state.navStack[state.navStack.length - 1] = screen; render(); }
@@ -925,6 +1204,7 @@ function render() {
   else if (screen.kind === "nowplaying") renderNowPlaying();
   else if (screen.kind === "progress") renderProgress(screen);
   else if (screen.kind === "rgb-tuner") renderRgbTuner(screen);
+  else if (screen.kind === "quiz") renderQuiz(screen);
   updateCarPlay();
 }
 
@@ -1565,6 +1845,9 @@ setupSeekBar(document.getElementById("cpBarTrack"));
 
 function onCarPlayModeChange() {
   if (isCarPlay()) {
+    // The quiz lives on the iPod screen only; leave it rather than let it
+    // keep playing behind the CarPlay UI.
+    if (state.navStack.length && topScreen().kind === "quiz") popScreen();
     cpBuiltTrackId = undefined;
     updateCarPlayClock();
     setCarPlayView(cpView);
@@ -1907,6 +2190,10 @@ function moveSelection(delta) {
   if (screen.kind === "list" && screen.items.length) {
     screen.selected = Math.max(0, Math.min(screen.items.length - 1, screen.selected + delta));
     render();
+  } else if (screen.kind === "quiz") {
+    if (screen.phase === "reveal") return;
+    screen.selected = Math.max(0, Math.min(quizRowCount(screen) - 1, screen.selected + delta));
+    render();
   } else if (screen.kind === "rgb-tuner") {
     // If on color row (0,1,2), adjust color value!
     if (screen.selected < 3) {
@@ -1959,12 +2246,14 @@ function onSelectButton() {
   playTick();
   const screen = topScreen();
   if (screen.kind === "list" || screen.kind === "rgb-tuner") activateSelected();
+  else if (screen.kind === "quiz") quizSelect(screen);
   else if (screen.kind === "nowplaying") togglePlayPause();
 }
 
 function onPlayPauseButton() {
   if (state.hold) return;
   playTick();
+  if (topScreen().kind === "quiz") return;
   if (!state.currentTrackId) {
     const screen = topScreen();
     if (screen.kind === "list" && screen.trackIds && screen.items.length) {
@@ -2023,6 +2312,12 @@ screenContentEl.addEventListener("click", (e) => {
   const row = e.target.closest(".menu-row");
   if (row) {
     const screen = topScreen();
+    if (screen.kind === "quiz") {
+      if (screen.phase === "reveal") return;
+      screen.selected = Number(row.dataset.idx);
+      quizSelect(screen);
+      return;
+    }
     if (screen.kind !== "list") return;
     const idx = Number(row.dataset.idx);
     screen.selected = idx;
